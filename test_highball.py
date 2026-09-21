@@ -91,3 +91,29 @@ def test_proximity_endpoint_structure_and_filter(client):
         assert data["filter_trajectory"] == "approaching"
         for ev in data["events"]:
             assert ev["trajectory"] == "approaching"
+
+
+def test_gtfs_rt_parser():
+    from gtfs_rt_parser import parse_gtfs_rt_vehicle_positions
+    sample_feed = {
+        "header": {"gtfs_realtime_version": "2.0", "timestamp": 1726913800},
+        "entity": [
+            {
+                "id": "train_99",
+                "vehicle": {
+                    "trip": {"trip_id": "CR-Fitchburg-99", "route_id": "CR-Fitchburg"},
+                    "position": {"latitude": 42.5, "longitude": -71.8, "bearing": 90.0, "speed": 20.0},
+                    "current_status": "IN_TRANSIT_TO",
+                },
+            }
+        ],
+    }
+    geojson = parse_gtfs_rt_vehicle_positions(sample_feed, agency_id="MBTA")
+    assert geojson["type"] == "FeatureCollection"
+    assert geojson["total_active"] == 1
+    feat = geojson["features"][0]
+    assert feat["geometry"]["coordinates"] == [-71.8, 42.5]
+    assert feat["properties"]["agency"] == "MBTA"
+    assert feat["properties"]["speed_mph"] > 40.0
+    assert feat["properties"]["heading"] == 90.0
+
