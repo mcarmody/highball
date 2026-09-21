@@ -172,5 +172,36 @@ def test_director_endpoint(client):
     assert "reason" in data
 
 
+def test_encounter_tracker_and_history_endpoints(client):
+    from encounter_tracker import EncounterTracker
+
+    tracker = EncounterTracker(max_history=10, encounter_radius_miles=5.0)
+    t0 = 1726913800.0
+    event1 = {
+        "train": {"train_num": "4", "route": "Southwest Chief", "speed_mph": 55},
+        "camera": {"cam_id": "cam_fullerton_depot", "name": "Fullerton Depot", "location": "Fullerton, CA"},
+        "distance_miles": 3.0,
+        "trajectory": "approaching",
+    }
+    tracker.update([event1], timestamp=t0)
+    assert len(tracker.get_active_encounters()) == 1
+
+    # Train departs (>5 mi)
+    tracker.update([], timestamp=t0 + 180.0)
+    assert len(tracker.get_active_encounters()) == 0
+    assert len(tracker.get_recent_history()) == 1
+    assert tracker.get_recent_history()[0]["status"] == "completed"
+
+    # Query history API endpoint
+    resp = client.get("/api/encounters/history")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+    resp_active = client.get("/api/encounters/active")
+    assert resp_active.status_code == 200
+    assert isinstance(resp_active.json(), list)
+
+
+
 
 

@@ -26,11 +26,14 @@ from cam_lookup import (
     find_nearby_cameras,
     haversine_miles,
 )
+from encounter_tracker import EncounterTracker
 
 BASE_DIR = Path(__file__).parent
 INDEX_HTML = BASE_DIR / "index.html"
 WEBCAMS_GEOJSON = BASE_DIR / "webcams.geojson"
 CORRIDORS_GEOJSON = BASE_DIR / "corridors.geojson"
+
+encounter_tracker = EncounterTracker(max_history=50, encounter_radius_miles=5.0)
 
 app = FastAPI(
     title="Highball Railfan Transit & Webcam Engine",
@@ -235,6 +238,7 @@ async def get_proximity_events(
                 })
 
     proximity_matches.sort(key=lambda x: x["distance_miles"])
+    encounter_tracker.update(proximity_matches)
     return {
         "timestamp": time.time(),
         "total_matches": len(proximity_matches),
@@ -244,6 +248,18 @@ async def get_proximity_events(
     }
 
 
+@app.get("/api/encounters/history")
+async def get_encounter_history(limit: int = 20):
+    """Returns completed flyby encounters history."""
+    return encounter_tracker.get_recent_history(limit=limit)
+
+
+@app.get("/api/encounters/active")
+async def get_active_encounters():
+    """Returns active proximity encounter sessions in progress."""
+    return encounter_tracker.get_active_encounters()
+
+
 @app.get("/api/director")
 async def get_director():
     """Returns Auto-Director's recommended camera to watch right now based on active encounters."""
@@ -251,6 +267,7 @@ async def get_director():
     events = prox.get("events", [])
     from auto_director import select_director_camera
     return select_director_camera(events)
+
 
 
 if __name__ == "__main__":
