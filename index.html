@@ -1,121 +1,604 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
 <head>
-<meta charset="utf-8">
-<title>Highball</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<style>
-  html, body, #map { height: 100%; margin: 0; background: #0b0f14; }
-  /* Free OSM tiles inverted+hue-rotated to a dark theme — no API key needed.
-     (Swapped in after CARTO's dark_all tiles started requiring a key.) */
-  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
-  body { font-family: -apple-system, system-ui, sans-serif; color: #cbd5e1; }
-  .leaflet-popup-content-wrapper { background: #111827; color: #e5e7eb; }
-  .leaflet-popup-tip { background: #111827; }
-  .train-label {
-    background: rgba(11,15,20,0.85);
-    border: 1px solid #334155;
-    border-radius: 4px;
-    padding: 2px 6px;
-    color: #7dd3fc;
-    font-size: 11px;
-    white-space: nowrap;
-  }
-  #hud {
-    position: absolute; top: 10px; left: 10px; z-index: 1000;
-    background: rgba(11,15,20,0.85); border: 1px solid #334155;
-    border-radius: 6px; padding: 8px 12px; font-size: 13px;
-  }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project Highball — Live Rail Telemetry & Cam-Jump</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <style>
+    .leaflet-tile-pane {
+      filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9);
+    }
+    .leaflet-container {
+      background: #020617;
+      font-family: inherit;
+    }
+    .leaflet-popup-content-wrapper {
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid #334155;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .leaflet-popup-tip {
+      background: #0f172a;
+      border: 1px solid #334155;
+    }
+    @keyframes radar-pulse {
+      0% { transform: scale(0.9); opacity: 0.8; }
+      50% { transform: scale(1.4); opacity: 0.2; }
+      100% { transform: scale(0.9); opacity: 0.8; }
+    }
+    .cam-pulse {
+      animation: radar-pulse 2.5s infinite ease-in-out;
+    }
+  </style>
 </head>
-<body>
-<div id="hud">Highball — live rail telemetry<br><span id="count">loading…</span></div>
-<div id="map"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script>
-  const map = L.map('map', { zoomControl: true }).setView([39.5, -98.35], 4);
+<body class="h-full flex flex-col font-sans antialiased overflow-hidden selection:bg-indigo-500 selection:text-white">
 
-  // Standard OSM tiles, no key required, ever. Dark look comes from the
-  // CSS filter above rather than a hosted dark tile style — CARTO's
-  // dark_all tiles now require an API key and were showing a watermark.
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 19
-  }).addTo(map);
+  <!-- HUD Header -->
+  <header class="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur px-4 flex items-center justify-between z-[1000] relative">
+    <div class="flex items-center space-x-3">
+      <div class="w-8 h-8 rounded bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+        <i class="fa-solid fa-train"></i>
+      </div>
+      <div>
+        <h1 class="text-sm font-semibold tracking-wide text-slate-100 uppercase">Project Highball <span class="text-xs font-normal text-slate-400">· Spatial Transit Ops</span></h1>
+      </div>
+    </div>
 
-  // Markers live outside .leaflet-tile-pane, so counter-invert them back
-  // to normal color so the CSS filter above doesn't also invert the dots.
-  const style = document.createElement('style');
-  style.textContent = '.leaflet-marker-pane, .leaflet-overlay-pane { filter: invert(1) hue-rotate(180deg); }';
-  document.head.appendChild(style);
+    <!-- Live Telemetry Stats -->
+    <div class="hidden md:flex items-center space-x-6 text-xs text-slate-400">
+      <div>Active Trains: <span class="font-mono font-medium text-slate-200" id="stat-trains">Polling...</span></div>
+      <div>Rail Cams: <span class="font-mono font-medium text-slate-200" id="stat-cams">7 Registered</span></div>
+      <div>Active Encounters: <span class="font-mono font-medium text-amber-400" id="stat-encounters">0</span></div>
+      <div>Telemetry: <span class="font-mono font-medium text-emerald-400">Amtraker v3 (15s TTL)</span></div>
+    </div>
 
-  let markers = L.layerGroup().addTo(map);
+    <!-- Quick Action / Status Pill -->
+    <div class="flex items-center space-x-3">
+      <button id="audio-btn" onclick="toggleAudio()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-indigo-400 flex items-center transition" title="Toggle audio chime">
+        <i class="fa-solid fa-bell"></i>
+        <span class="ml-1 hidden sm:inline">Alerts: ON</span>
+      </button>
+      <button onclick="toggleSidebar()" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 flex items-center space-x-1.5 transition">
+        <i class="fa-solid fa-satellite"></i>
+        <span>Cam Encounters</span>
+        <span id="encounter-badge" class="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 text-[10px] hidden">0</span>
+      </button>
+      <div class="flex items-center space-x-2 px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" id="status-dot"></span>
+        <span class="font-mono text-slate-300" id="status-text">Live</span>
+      </div>
+    </div>
+  </header>
 
-  // Amtraker sends CORS: * — fetch straight from the source in-browser,
-  // no relay/backend needed for this prototype. Falls back to the
-  // committed trains.geojson snapshot if the live API is unreachable.
-  const AMTRAKER_URL = 'https://api-v3.amtraker.com/v3/trains';
+  <!-- Main Viewport -->
+  <main class="flex-1 relative overflow-hidden flex">
 
-  function toFeatures(raw) {
-    const features = [];
-    for (const trainNum in raw) {
-      raw[trainNum].forEach(inst => {
-        if (inst.lat == null || inst.lon == null) return;
-        const stations = inst.stations || [];
-        features.push({
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [inst.lon, inst.lat] },
-          properties: {
-            train_num: trainNum,
-            route: inst.routeName,
-            heading: inst.heading,
-            velocity: inst.velocity,
-            origin: (stations[0] || {}).name,
-            destination: (stations[stations.length - 1] || {}).name,
-          }
-        });
+    <!-- Leaflet Map Container -->
+    <div id="map" class="flex-1 h-full w-full z-0"></div>
+
+    <!-- Floating Filter Drawer / Quick Filter Pill Bar -->
+    <div class="absolute top-4 left-4 z-[500] flex flex-wrap gap-2 pointer-events-auto">
+      <button onclick="filterTrains('all')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-indigo-600 text-white shadow-sm border border-indigo-500" data-filter="all">All Trains</button>
+      <button onclick="filterTrains('approaching')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="approaching">Closing In (&lt;15 mi)</button>
+      <button onclick="filterTrains('highspeed')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="highspeed">Fast (&gt;60 mph)</button>
+      <button onclick="resetMapView()" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-400 hover:text-white border border-slate-800 backdrop-blur" title="Recenter USA">
+        <i class="fa-solid fa-arrows-to-circle"></i> Recenter
+      </button>
+    </div>
+
+    <!-- Slide-Over Encounter Drawer -->
+    <aside id="encounter-sidebar" class="absolute top-0 right-0 h-full w-80 md:w-96 bg-slate-900/95 backdrop-blur border-l border-slate-800 z-[500] transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col shadow-2xl">
+      <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-video text-amber-400 text-xs"></i>
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-200">Railfan Cam Encounters</h2>
+        </div>
+        <button onclick="toggleSidebar()" class="text-slate-400 hover:text-slate-200 p-1 text-xs">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <!-- Navigation Tabs: Active vs Completed History -->
+      <div class="px-3 pt-2 pb-0 flex space-x-4 border-b border-slate-800 bg-slate-950/60">
+        <button id="tab-btn-active" onclick="switchSidebarTab('active')" class="pb-2 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-1.5 transition">
+          <i class="fa-solid fa-radar"></i>
+          <span>Active In-Zone</span>
+          <span id="tab-count-active" class="px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px]">0</span>
+        </button>
+        <button id="tab-btn-history" onclick="switchSidebarTab('history')" class="pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+          <span>Flyby History</span>
+          <span id="tab-count-history" class="px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400 text-[10px]">0</span>
+        </button>
+      </div>
+      <div class="p-2.5 text-[11px] text-slate-400 border-b border-slate-800/60 bg-slate-950/30 flex items-center justify-between" id="sidebar-subtext">
+        <span>Live trains correlated with verified public rail webcams.</span>
+      </div>
+      <div id="encounters-list" class="flex-1 overflow-y-auto p-3 space-y-2">
+        <div class="text-center py-8 text-xs text-slate-500">Scanning spatial corridors...</div>
+      </div>
+      <div id="history-list" class="flex-1 overflow-y-auto p-3 space-y-2 hidden">
+        <div class="text-center py-8 text-xs text-slate-500">No completed flybys logged yet.</div>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- Video Cam-Jump Modal -->
+  <div id="cam-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[2000] hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-lg max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col">
+      <div class="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-950">
+        <div class="flex items-center space-x-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span>
+          <span class="text-xs font-semibold uppercase tracking-wide text-slate-200" id="modal-cam-title">Railfan Live Cam</span>
+          <span class="text-[11px] text-slate-400" id="modal-cam-loc"></span>
+        </div>
+        <button onclick="closeCamModal()" class="text-slate-400 hover:text-white text-sm p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div class="aspect-video w-full bg-black relative">
+        <iframe id="modal-iframe" class="w-full h-full border-0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+      </div>
+      <div class="p-3 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+        <div id="modal-cam-details">Provider: Virtual Railfan · Auto-Jump Enabled</div>
+        <button onclick="closeCamModal()" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Map & Layer State
+    let map = null;
+    let trainLayerGroup = null;
+    let camLayerGroup = null;
+    let corridorLayerGroup = null;
+    let trainData = [];
+    let camData = [];
+    let proximityEvents = [];
+    let historyEvents = [];
+    let currentSidebarTab = 'active';
+    let currentFilter = 'all';
+    let sidebarOpen = false;
+
+    // Initialize Leaflet Map
+    function initMap() {
+      map = L.map('map', {
+        zoomControl: false,
+        attributionControl: false
+      }).setView([39.8283, -98.5795], 4); // Center of Continental USA
+
+      // Add dark CartoDB basemap
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',        maxZoom: 19
+      }).addTo(map);
+
+      // Add Zoom Control to bottom-right
+      L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+      trainLayerGroup = L.layerGroup().addTo(map);
+      camLayerGroup = L.layerGroup().addTo(map);
+      corridorLayerGroup = L.layerGroup().addTo(map);
+
+      // Attribution bottom left
+      L.control.attribution({ position: 'bottomleft' })
+        .addAttribution('&copy; <a href="https://carto.com/" class="text-slate-500">CARTO</a> · Amtraker v3')
+        .addTo(map);
+    }
+
+    // Custom Marker Icons
+    function createCamIcon() {
+      return L.divIcon({
+        className: 'cam-marker',
+        html: `
+          <div class="relative flex items-center justify-center w-7 h-7">
+            <div class="absolute w-7 h-7 rounded-full bg-rose-500/30 cam-pulse"></div>
+            <div class="w-6 h-6 rounded-full bg-rose-600 border border-rose-400 flex items-center justify-center text-white shadow-lg">
+              <i class="fa-solid fa-video text-[10px]"></i>
+            </div>
+          </div>
+        `,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+        popupAnchor: [0, -14]
       });
     }
-    return features;
-  }
 
-  function render(features) {
-    markers.clearLayers();
-    features.forEach(f => {
-      const [lon, lat] = f.geometry.coordinates;
-      const p = f.properties;
-      L.circleMarker([lat, lon], {
-        radius: 5, color: '#7dd3fc', fillColor: '#38bdf8',
-        fillOpacity: 0.9, weight: 1.5
-      }).bindPopup(
-        `<b>${p.route}</b> (Train ${p.train_num})<br>` +
-        `${p.origin} → ${p.destination}<br>` +
-        `Heading ${p.heading || '—'}, ${Math.round(p.velocity || 0)} mph`
-      ).addTo(markers);
-    });
-    document.getElementById('count').textContent =
-      features.length + ' trains tracking live · updated ' +
-      new Date().toLocaleTimeString();
-  }
-
-  function loadTrains() {
-    fetch(AMTRAKER_URL, { cache: 'no-store' })
-      .then(r => r.json())
-      .then(raw => render(toFeatures(raw)))
-      .catch(err => {
-        console.error('live fetch failed, falling back to snapshot', err);
-        fetch('trains.geojson?_=' + Date.now())
-          .then(r => r.json())
-          .then(data => render(data.features))
-          .catch(() => {
-            document.getElementById('count').textContent = 'feed unavailable';
-          });
+    function createTrainIcon(heading, speed) {
+      const rot = heading || 0;
+      const isFast = speed >= 60;
+      const colorClass = isFast ? 'bg-indigo-500 border-indigo-300' : 'bg-sky-600 border-sky-400';
+      return L.divIcon({
+        className: 'train-marker',
+        html: `
+          <div class="flex items-center justify-center w-6 h-6">
+            <div class="w-5 h-5 rounded-full ${colorClass} border flex items-center justify-center text-white shadow-md transform" style="transform: rotate(${rot}deg)">
+              <i class="fa-solid fa-location-arrow text-[9px]"></i>
+            </div>
+          </div>
+        `,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+        popupAnchor: [0, -12]
       });
-  }
+    }
 
-  loadTrains();
-  setInterval(loadTrains, 15000); // Amtraker updates roughly every ~1min server-side
-</script>
+    // Load Cameras
+    async function loadWebcams() {
+      try {
+        const resp = await fetch('/api/cams');
+        const data = await resp.json();
+        camData = data.features || [];
+        document.getElementById('stat-cams').innerText = `${camData.length} Registered`;
+
+        camLayerGroup.clearLayers();
+        camData.forEach(cam => {
+          const coords = cam.geometry.coordinates;
+          const props = cam.properties;
+          const marker = L.marker([coords[1], coords[0]], { icon: createCamIcon() });
+          
+          const popupHtml = `
+            <div class="p-2.5 space-y-1.5 text-xs min-w-[210px]">
+              <div class="font-bold text-slate-100 flex items-center justify-between">
+                <span>${props.name}</span>
+                <span class="text-[10px] px-1 rounded bg-rose-500/20 text-rose-300 font-mono">LIVE</span>
+              </div>
+              <div class="text-slate-400 text-[11px]">${props.location} · ${props.milepost}</div>
+              <div class="text-slate-400 text-[11px]">Subdivision: <span class="text-slate-200">${props.subdivision || 'Mainline'}</span></div>
+              <div class="text-slate-400 text-[11px]">Route: <span class="text-slate-200">${props.route}</span></div>
+              <div class="pt-1">
+                <button onclick="openCamModal('${props.name}', '${props.location}', '${props.embed_url}', '${props.provider}')" class="w-full py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1 transition">
+                  <i class="fa-solid fa-play text-[10px]"></i>
+                  <span>Jump to Live Feed</span>
+                </button>
+              </div>
+            </div>
+          `;
+          marker.bindPopup(popupHtml);
+          camLayerGroup.addLayer(marker);
+        });
+      } catch (err) {
+        console.error('Failed to load webcams:', err);
+      }
+    }
+
+    // Load Corridors
+    async function loadCorridors() {
+      try {
+        const resp = await fetch('/api/corridors');
+        const data = await resp.json();
+        L.geoJSON(data, {
+          style: { color: '#6366f1', weight: 2, opacity: 0.35, dashArray: '3, 6' },
+          onEachFeature: (feature, layer) => {
+            layer.bindTooltip(`${feature.properties.name} (${feature.properties.operator})`, { sticky: true });
+          }
+        }).addTo(corridorLayerGroup);
+      } catch (err) {
+        console.error('Failed to load corridors:', err);
+      }
+    }
+
+    // Audio Alert Chime
+    let audioEnabled = true;
+    let audioCtx = null;
+    let lastAlertedTrain = null;
+
+    function toggleAudio() {
+      audioEnabled = !audioEnabled;
+      const btn = document.getElementById('audio-btn');
+      if (audioEnabled) {
+        btn.innerHTML = '<i class="fa-solid fa-bell"></i><span class="ml-1 hidden sm:inline">Alerts: ON</span>';
+        btn.className = 'px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-indigo-400 flex items-center transition';
+      } else {
+        btn.innerHTML = '<i class="fa-solid fa-bell-slash"></i><span class="ml-1 hidden sm:inline">Alerts: OFF</span>';
+        btn.className = 'px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-500 flex items-center transition';
+      }
+    }
+
+    function playApproachChime() {
+      if (!audioEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+        osc.frequency.exponentialRampToValueAtTime(880.0, audioCtx.currentTime + 0.15); // A5
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.65);
+      } catch(e) { console.log('Audio error:', e); }
+    }
+
+    // Load Trains & Proximity
+    async function refreshTelemetry() {
+      try {
+        const [trainsResp, proxResp, histResp] = await Promise.all([
+          fetch('/api/trains'),
+          fetch('/api/proximity?max_miles=15.0'),
+          fetch('/api/encounters/history?limit=25')
+        ]);
+        
+        const trainsGeo = await trainsResp.json();
+        const proxData = await proxResp.json();
+        const histData = histResp.ok ? await histResp.json() : [];
+
+        trainData = trainsGeo.features || [];
+        proximityEvents = proxData.events || [];
+        historyEvents = Array.isArray(histData) ? histData : [];
+
+        document.getElementById('stat-trains').innerText = `${trainData.length} Active`;
+        document.getElementById('stat-encounters').innerText = proximityEvents.length;
+        
+        const tabActiveBadge = document.getElementById('tab-count-active');
+        if (tabActiveBadge) tabActiveBadge.innerText = proximityEvents.length;
+        const tabHistoryBadge = document.getElementById('tab-count-history');
+        if (tabHistoryBadge) tabHistoryBadge.innerText = historyEvents.length;
+
+        const badge = document.getElementById('encounter-badge');
+        if (proximityEvents.length > 0) {
+          badge.innerText = proximityEvents.length;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+
+        // Trigger audio chime if a train is approaching within 3 miles
+        const imminent = proximityEvents.find(e => e.trajectory === 'approaching' && e.distance_miles <= 3.0);
+        if (imminent && imminent.train.train_num !== lastAlertedTrain) {
+          lastAlertedTrain = imminent.train.train_num;
+          playApproachChime();
+        }
+
+        renderTrains();
+        renderEncounterList();
+        renderHistoryList();
+      } catch (err) {
+        console.error('Telemetry fetch error:', err);
+        document.getElementById('status-text').innerText = 'Degraded';
+        document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-rose-500';
+      }
+    }
+
+
+    function renderTrains() {
+      trainLayerGroup.clearLayers();
+      const approachingTrainIds = new Set(
+        proximityEvents.filter(e => e.trajectory === 'approaching').map(e => e.train.train_num)
+      );
+
+      trainData.forEach(t => {
+        const props = t.properties;
+        const coords = t.geometry.coordinates;
+
+        // Filtering
+        if (currentFilter === 'approaching' && !approachingTrainIds.has(props.train_num)) {
+          return;
+        }
+        if (currentFilter === 'highspeed' && props.speed_mph < 60) {
+          return;
+        }
+
+        const marker = L.marker([coords[1], coords[0]], {
+          icon: createTrainIcon(props.heading, props.speed_mph)
+        });
+
+        const nextStopHtml = props.next_station 
+          ? `<div class="text-slate-400 text-[11px]">Next: <span class="text-slate-200 font-medium">${props.next_station.name} (${props.next_station.code})</span></div>` 
+          : '';
+
+        const timelyHtml = props.timely 
+          ? `<div class="text-slate-400 text-[11px]">Status: <span class="text-emerald-400 font-medium">${props.timely}</span></div>` 
+          : '';
+
+        const popupHtml = `
+          <div class="p-2 space-y-1 text-xs min-w-[210px]">
+            <div class="flex items-center justify-between border-b border-slate-700/60 pb-1">
+              <span class="font-bold text-slate-100">Train #${props.train_num}</span>
+              <span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px]">${props.speed_mph} mph</span>
+            </div>
+            <div class="text-slate-300 font-medium">${props.route}</div>
+            <div class="text-slate-400 text-[11px]">${props.origin} &rarr; ${props.dest}</div>
+            ${nextStopHtml}
+            ${timelyHtml}
+            <div class="text-slate-400 text-[11px]">Heading: <span class="font-mono text-slate-200">${props.heading}&deg;</span></div>
+          </div>
+        `;
+        marker.bindPopup(popupHtml);
+        trainLayerGroup.addLayer(marker);
+      });
+    }
+
+    function renderEncounterList() {
+      const container = document.getElementById('encounters-list');
+      if (proximityEvents.length === 0) {
+        container.innerHTML = `<div class="text-center py-8 text-xs text-slate-500">No trains within 15 miles of registered webcams.</div>`;
+        return;
+      }
+
+      container.innerHTML = proximityEvents.map(evt => {
+        let badgeClass = "bg-slate-700/50 text-slate-400";
+        let label = "PASSING";
+        if (evt.trajectory === "approaching") {
+          badgeClass = "bg-emerald-500/20 text-emerald-300";
+          label = "APPROACHING";
+        } else if (evt.trajectory === "receding") {
+          badgeClass = "bg-slate-700/40 text-slate-400";
+          label = "DEPARTING";
+        }
+
+        return `
+          <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-indigo-500/50 transition flex flex-col space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-xs text-slate-200">Train #${evt.train.train_num} (${evt.train.route})</span>
+              <div class="flex items-center space-x-1.5">
+                <span class="px-1.5 py-0.5 rounded ${badgeClass} font-mono text-[9px] font-semibold">${label}</span>
+                <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px]">${evt.distance_miles} mi</span>
+              </div>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              Target: <span class="text-slate-200 font-medium">${evt.camera.name}</span>
+            </div>
+            ${evt.train.next_station ? `<div class="text-[10px] text-slate-500">Next stop: ${evt.train.next_station.name} (${evt.train.next_station.code})</div>` : ''}
+            <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-800/60">
+              <span>Speed: <span class="font-mono text-slate-300">${evt.train.speed_mph} mph</span></span>
+              ${evt.eta_minutes ? `<span class="font-mono text-emerald-300">ETA: ~${evt.eta_minutes}m</span>` : '<span class="font-mono text-slate-500">Departing</span>'}
+            </div>
+            <button onclick="openCamModal('${evt.camera.name}', '${evt.camera.location}', '${evt.camera.embed_url}', '${evt.camera.provider}')" class="w-full py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white text-[11px] font-medium flex items-center justify-center space-x-1.5 transition">
+              <i class="fa-solid fa-tv text-[10px]"></i>
+              <span>Jump to Stream</span>
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function switchSidebarTab(tab) {
+      currentSidebarTab = tab;
+      const btnActive = document.getElementById('tab-btn-active');
+      const btnHistory = document.getElementById('tab-btn-history');
+      const listActive = document.getElementById('encounters-list');
+      const listHistory = document.getElementById('history-list');
+      const subtext = document.getElementById('sidebar-subtext');
+
+      if (tab === 'active') {
+        btnActive.className = 'pb-2 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-1.5 transition';
+        btnHistory.className = 'pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition';
+        listActive.classList.remove('hidden');
+        listHistory.classList.add('hidden');
+        if (subtext) subtext.innerHTML = '<span>Live trains correlated with verified public rail webcams.</span>';
+      } else {
+        btnHistory.className = 'pb-2 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-1.5 transition';
+        btnActive.className = 'pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition';
+        listHistory.classList.remove('hidden');
+        listActive.classList.add('hidden');
+        if (subtext) subtext.innerHTML = '<span>Recent completed train flybys with CPA and peak speed.</span>';
+      }
+    }
+
+    function renderHistoryList() {
+      const container = document.getElementById('history-list');
+      if (!container) return;
+      if (!historyEvents || historyEvents.length === 0) {
+        container.innerHTML = `<div class="text-center py-8 text-xs text-slate-500">No completed flybys logged yet.</div>`;
+        return;
+      }
+
+      container.innerHTML = historyEvents.map(evt => {
+        const durationSec = evt.duration_seconds || 0;
+        const durationStr = durationSec >= 60 
+          ? `${Math.floor(durationSec / 60)}m ${Math.round(durationSec % 60)}s`
+          : `${Math.round(durationSec)}s`;
+        const timeStr = evt.start_time_iso ? evt.start_time_iso.substring(11, 19) + ' UTC' : '';
+
+        const cam = camData.find(c => c.cam_id === evt.camera_id) || {
+          name: evt.camera_name || 'Rail Cam',
+          location: evt.location || '',
+          embed_url: `https://www.youtube.com/embed/${evt.camera_id}?autoplay=1`,
+          provider: 'Railfan Stream'
+        };
+
+        const safeCamName = (cam.name || '').replace(/'/g, "\\'");
+        const safeCamLoc = (cam.location || '').replace(/'/g, "\\'");
+        const safeEmbedUrl = (cam.embed_url || '').replace(/'/g, "\\'");
+        const safeProvider = (cam.provider || '').replace(/'/g, "\\'");
+
+        return `
+          <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-slate-700 transition flex flex-col space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-xs text-slate-200">Train #${evt.train_num} (${evt.route})</span>
+              <span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[9px] uppercase font-semibold">Completed</span>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              Camera: <span class="text-slate-200 font-medium">${evt.camera_name}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5 pt-1.5 pb-1 border-t border-b border-slate-800/60 text-[10px]">
+              <div>
+                <span class="text-slate-500 block">CPA:</span>
+                <span class="font-mono font-medium text-amber-300">${evt.closest_distance_miles} mi</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Peak Speed:</span>
+                <span class="font-mono font-medium text-slate-200">${evt.peak_speed_mph} mph</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Duration:</span>
+                <span class="font-mono font-medium text-indigo-300">${durationStr}</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-slate-500">
+              <span>Time: <span class="font-mono text-slate-400">${timeStr}</span></span>
+              <button onclick="openCamModal('${safeCamName}', '${safeCamLoc}', '${safeEmbedUrl}', '${safeProvider}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] flex items-center space-x-1 transition">
+                <i class="fa-solid fa-video text-[9px]"></i>
+                <span>Cam</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function filterTrains(type) {
+      currentFilter = type;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        if (btn.dataset.filter === type) {
+          btn.className = 'filter-btn px-3 py-1 rounded-full text-xs font-medium bg-indigo-600 text-white shadow-sm border border-indigo-500';
+        } else {
+          btn.className = 'filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur';
+        }
+      });
+      renderTrains();
+    }
+
+    function resetMapView() {
+      map.setView([39.8283, -98.5795], 4);
+    }
+
+    function toggleSidebar() {
+      sidebarOpen = !sidebarOpen;
+      const sidebar = document.getElementById('encounter-sidebar');
+      if (sidebarOpen) {
+        sidebar.classList.remove('translate-x-full');
+      } else {
+        sidebar.classList.add('translate-x-full');
+      }
+    }
+
+    function openCamModal(name, loc, embedUrl, provider) {
+      document.getElementById('modal-cam-title').innerText = name;
+      document.getElementById('modal-cam-loc').innerText = `· ${loc}`;
+      document.getElementById('modal-cam-details').innerText = `Provider: ${provider} · Live Feed`;
+      const iframe = document.getElementById('modal-iframe');
+      iframe.src = embedUrl;
+      const modal = document.getElementById('cam-modal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeCamModal() {
+      const iframe = document.getElementById('modal-iframe');
+      iframe.src = '';
+      const modal = document.getElementById('cam-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    // Boot
+    window.addEventListener('DOMContentLoaded', () => {
+      initMap();
+      loadWebcams();
+      loadCorridors();
+      refreshTelemetry();
+      setInterval(refreshTelemetry, 15000); // 15s refresh
+    });
+  </script>
 </body>
 </html>

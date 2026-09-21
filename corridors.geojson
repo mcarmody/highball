@@ -1,0 +1,218 @@
+{
+  "type": "FeatureCollection",
+  "total_corridors": 4,
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -71.0589,
+            42.3519
+          ],
+          [
+            -71.4189,
+            41.824
+          ],
+          [
+            -72.9267,
+            41.3083
+          ],
+          [
+            -73.9935,
+            40.7505
+          ],
+          [
+            -74.1724,
+            40.7357
+          ],
+          [
+            -74.7699,
+            40.2206
+          ],
+          [
+            -75.182,
+            39.9558
+          ],
+          [
+            -75.5511,
+            39.7371
+          ],
+          [
+            -76.0712,
+            39.5598
+          ],
+          [
+            -76.6169,
+            39.3072
+          ],
+          [
+            -77.0063,
+            38.8974
+          ]
+        ]
+      },
+      "properties": {
+        "corridor_id": "corridor_nec",
+        "name": "Northeast Corridor (NEC)",
+        "operator": "Amtrak / Commuter Shared",
+        "subdivision": "Mid-Atlantic & New England Div",
+        "waypoints": 11
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -87.639,
+            41.8789
+          ],
+          [
+            -89.0664,
+            41.9168
+          ],
+          [
+            -90.3664,
+            40.9431
+          ],
+          [
+            -91.366,
+            40.3934
+          ],
+          [
+            -94.5857,
+            39.085
+          ],
+          [
+            -97.3375,
+            37.6872
+          ],
+          [
+            -101.8313,
+            35.222
+          ],
+          [
+            -106.6504,
+            35.0844
+          ],
+          [
+            -111.6483,
+            35.1977
+          ],
+          [
+            -114.053,
+            35.1894
+          ],
+          [
+            -117.0173,
+            34.8958
+          ],
+          [
+            -117.3117,
+            34.1083
+          ],
+          [
+            -117.9228,
+            33.8687
+          ],
+          [
+            -118.2365,
+            34.0562
+          ]
+        ]
+      },
+      "properties": {
+        "corridor_id": "corridor_bnsf_transcon",
+        "name": "BNSF Southern Transcon & Southwest Corridor",
+        "operator": "BNSF / Amtrak Southwest Chief & Zephyr",
+        "subdivision": "Transcon Mainline",
+        "waypoints": 14
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -75.182,
+            39.9558
+          ],
+          [
+            -76.3055,
+            40.0379
+          ],
+          [
+            -76.8867,
+            40.2625
+          ],
+          [
+            -77.86,
+            40.5934
+          ],
+          [
+            -78.4011,
+            40.5187
+          ],
+          [
+            -78.4842,
+            40.4965
+          ],
+          [
+            -78.9225,
+            40.3267
+          ],
+          [
+            -79.9959,
+            40.4406
+          ]
+        ]
+      },
+      "properties": {
+        "corridor_id": "corridor_pittsburgh_line",
+        "name": "NS Pittsburgh Line / Keystone Corridor",
+        "operator": "Norfolk Southern / Amtrak Pennsylvanian",
+        "subdivision": "NS Pittsburgh Division",
+        "waypoints": 8
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            -119.0187,
+            35.3733
+          ],
+          [
+            -118.6312,
+            35.2925
+          ],
+          [
+            -118.5367,
+            35.2008
+          ],
+          [
+            -118.4489,
+            35.1322
+          ],
+          [
+            -118.1737,
+            35.0525
+          ]
+        ]
+      },
+      "properties": {
+        "corridor_id": "corridor_tehachapi",
+        "name": "UP Mojave Subdivision (Tehachapi Pass)",
+        "operator": "Union Pacific / BNSF Trackage Rights",
+        "subdivision": "UP Mojave Sub",
+        "waypoints": 5
+      }
+    }
+  ]
+}

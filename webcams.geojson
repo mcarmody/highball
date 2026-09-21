@@ -1,0 +1,139 @@
+{
+  "type": "FeatureCollection",
+  "total_cams": 7,
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.4842,
+          40.4965
+        ]
+      },
+      "properties": {
+        "cam_id": "cam_horseshoe_curve",
+        "name": "Horseshoe Curve (Kittanning Point)",
+        "location": "Altoona, PA",
+        "route": "Pennsylvanian",
+        "milepost": "MP 242.0",
+        "provider": "Virtual Railfan",
+        "embed_url": "https://www.youtube.com/embed/8G4RkIeL2Uo?autoplay=1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -118.5367,
+          35.2008
+        ]
+      },
+      "properties": {
+        "cam_id": "cam_tehachapi_loop",
+        "name": "Tehachapi Loop (Walong)",
+        "location": "Tehachapi, CA",
+        "route": "San Joaquins (Bus/Freight Interconnect)",
+        "milepost": "MP 351.6",
+        "provider": "RailStream",
+        "embed_url": "https://www.youtube.com/embed/cK18H93lJmQ?autoplay=1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -89.0664,
+          41.9168
+        ]
+      },
+      "properties": {
+        "cam_id": "cam_rochelle_diamond",
+        "name": "Rochelle Railroad Park (Double Diamond)",
+        "location": "Rochelle, IL",
+        "route": "Illinois Zephyr / Southwest Chief corridor",
+        "milepost": "MP 75.2",
+        "provider": "City of Rochelle",
+        "embed_url": "https://www.youtube.com/embed/rX_5N6W6_1c?autoplay=1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -117.9228,
+          33.8687
+        ]
+      },
+      "properties": {
+        "cam_id": "cam_fullerton_depot",
+        "name": "Fullerton Depot",
+        "location": "Fullerton, CA",
+        "route": "Pacific Surfliner / Southwest Chief",
+        "milepost": "MP 165.2",
+        "provider": "Virtual Railfan",
+        "embed_url": "https://www.youtube.com/embed/qQ1j0l9Z-wM?autoplay=1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -111.6483,
+          35.1977
+        ]
+      },
+      "properties": {
+        "cam_id": "cam_flagstaff_depot",
+        "name": "Flagstaff Historic Depot",
+        "location": "Flagstaff, AZ",
+        "route": "Southwest Chief",
+        "milepost": "MP 344.0",
+        "provider": "Virtual Railfan",
+        "embed_url": "https://www.youtube.com/embed/F9jW7q1Z8m0?autoplay=1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -90.3664,
+          40.9431
+        ]
+      },
+      "properties": {
+        "cam_id": "cam_galesburg_depot",
+        "name": "Galesburg Depot",
+        "location": "Galesburg, IL",
+        "route": "California Zephyr / Southwest Chief / Carl Sandburg",
+        "milepost": "MP 162.0",
+        "provider": "Virtual Railfan",
+        "embed_url": "https://www.youtube.com/embed/Jk7P0mX-L4w?autoplay=1"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -76.0712,
+          39.5598
+        ]
+      },
+      "properties": {
+        "cam_id": "cam_chesapeake_city",
+        "name": "Perryville MARC / Northeast Corridor",
+        "location": "Perryville, MD",
+        "route": "Northeast Regional / Acela",
+        "milepost": "MP 60.1",
+        "provider": "Virtual Railfan",
+        "embed_url": "https://www.youtube.com/embed/Pz7M9kQ2L1o?autoplay=1"
+      }
+    }
+  ]
+}
