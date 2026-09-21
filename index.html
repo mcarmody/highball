@@ -42,35 +42,70 @@
 
   let markers = L.layerGroup().addTo(map);
 
-  function loadTrains() {
-    fetch('trains.geojson?_=' + Date.now())
-      .then(r => r.json())
-      .then(data => {
-        markers.clearLayers();
-        data.features.forEach(f => {
-          const [lon, lat] = f.geometry.coordinates;
-          const p = f.properties;
-          const dot = L.circleMarker([lat, lon], {
-            radius: 5, color: '#7dd3fc', fillColor: '#38bdf8',
-            fillOpacity: 0.9, weight: 1.5
-          }).bindPopup(
-            `<b>${p.route}</b> (Train ${p.train_num})<br>` +
-            `${p.origin} → ${p.destination}<br>` +
-            `Heading ${p.heading || '—'}, ${Math.round(p.velocity || 0)} mph`
-          );
-          dot.addTo(markers);
+  // Amtraker sends CORS: * — fetch straight from the source in-browser,
+  // no relay/backend needed for this prototype. Falls back to the
+  // committed trains.geojson snapshot if the live API is unreachable.
+  const AMTRAKER_URL = 'https://api-v3.amtraker.com/v3/trains';
+
+  function toFeatures(raw) {
+    const features = [];
+    for (const trainNum in raw) {
+      raw[trainNum].forEach(inst => {
+        if (inst.lat == null || inst.lon == null) return;
+        const stations = inst.stations || [];
+        features.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [inst.lon, inst.lat] },
+          properties: {
+            train_num: trainNum,
+            route: inst.routeName,
+            heading: inst.heading,
+            velocity: inst.velocity,
+            origin: (stations[0] || {}).name,
+            destination: (stations[stations.length - 1] || {}).name,
+          }
         });
-        document.getElementById('count').textContent =
-          data.features.length + ' trains tracking live';
-      })
+      });
+    }
+    return features;
+  }
+
+  function render(features) {
+    markers.clearLayers();
+    features.forEach(f => {
+      const [lon, lat] = f.geometry.coordinates;
+      const p = f.properties;
+      L.circleMarker([lat, lon], {
+        radius: 5, color: '#7dd3fc', fillColor: '#38bdf8',
+        fillOpacity: 0.9, weight: 1.5
+      }).bindPopup(
+        `<b>${p.route}</b> (Train ${p.train_num})<br>` +
+        `${p.origin} → ${p.destination}<br>` +
+        `Heading ${p.heading || '—'}, ${Math.round(p.velocity || 0)} mph`
+      ).addTo(markers);
+    });
+    document.getElementById('count').textContent =
+      features.length + ' trains tracking live · updated ' +
+      new Date().toLocaleTimeString();
+  }
+
+  function loadTrains() {
+    fetch(AMTRAKER_URL, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(raw => render(toFeatures(raw)))
       .catch(err => {
-        document.getElementById('count').textContent = 'feed unavailable';
-        console.error(err);
+        console.error('live fetch failed, falling back to snapshot', err);
+        fetch('trains.geojson?_=' + Date.now())
+          .then(r => r.json())
+          .then(data => render(data.features))
+          .catch(() => {
+            document.getElementById('count').textContent = 'feed unavailable';
+          });
       });
   }
 
   loadTrains();
-  setInterval(loadTrains, 30000); // matches ingest cadence
+  setInterval(loadTrains, 15000); // Amtraker updates roughly every ~1min server-side
 </script>
 </body>
 </html>
