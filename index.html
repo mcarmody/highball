@@ -78,7 +78,7 @@
     <!-- Floating Filter Drawer / Quick Filter Pill Bar -->
     <div class="absolute top-4 left-4 z-[500] flex flex-wrap gap-2 pointer-events-auto">
       <button onclick="filterTrains('all')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-indigo-600 text-white shadow-sm border border-indigo-500" data-filter="all">All Trains</button>
-      <button onclick="filterTrains('approaching')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="approaching">Near Cams (&lt;15 mi)</button>
+      <button onclick="filterTrains('approaching')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="approaching">Closing In (&lt;15 mi)</button>
       <button onclick="filterTrains('highspeed')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="highspeed">Fast (&gt;60 mph)</button>
       <button onclick="resetMapView()" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-400 hover:text-white border border-slate-800 backdrop-blur" title="Recenter USA">
         <i class="fa-solid fa-arrows-to-circle"></i> Recenter
@@ -97,7 +97,7 @@
         </button>
       </div>
       <div class="p-3 text-[11px] text-slate-400 border-b border-slate-800/60 bg-slate-950/40">
-        Live trains detected within 15 miles of verified public rail webcams. Click to jump to cam feed.
+        Live trains correlated with verified public rail webcams with trajectory and ETA.
       </div>
       <div id="encounters-list" class="flex-1 overflow-y-auto p-3 space-y-2">
         <div class="text-center py-8 text-xs text-slate-500">Scanning spatial corridors...</div>
@@ -217,12 +217,13 @@
           const marker = L.marker([coords[1], coords[0]], { icon: createCamIcon() });
           
           const popupHtml = `
-            <div class="p-2 space-y-1.5 text-xs min-w-[200px]">
+            <div class="p-2.5 space-y-1.5 text-xs min-w-[210px]">
               <div class="font-bold text-slate-100 flex items-center justify-between">
                 <span>${props.name}</span>
                 <span class="text-[10px] px-1 rounded bg-rose-500/20 text-rose-300 font-mono">LIVE</span>
               </div>
               <div class="text-slate-400 text-[11px]">${props.location} · ${props.milepost}</div>
+              <div class="text-slate-400 text-[11px]">Subdivision: <span class="text-slate-200">${props.subdivision || 'Mainline'}</span></div>
               <div class="text-slate-400 text-[11px]">Route: <span class="text-slate-200">${props.route}</span></div>
               <div class="pt-1">
                 <button onclick="openCamModal('${props.name}', '${props.location}', '${props.embed_url}', '${props.provider}')" class="w-full py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1 transition">
@@ -276,7 +277,9 @@
 
     function renderTrains() {
       trainLayerGroup.clearLayers();
-      const approachingTrainIds = new Set(proximityEvents.map(e => e.train.train_num));
+      const approachingTrainIds = new Set(
+        proximityEvents.filter(e => e.trajectory === 'approaching').map(e => e.train.train_num)
+      );
 
       trainData.forEach(t => {
         const props = t.properties;
@@ -294,6 +297,14 @@
           icon: createTrainIcon(props.heading, props.speed_mph)
         });
 
+        const nextStopHtml = props.next_station 
+          ? `<div class="text-slate-400 text-[11px]">Next: <span class="text-slate-200 font-medium">${props.next_station.name} (${props.next_station.code})</span></div>` 
+          : '';
+
+        const timelyHtml = props.timely 
+          ? `<div class="text-slate-400 text-[11px]">Status: <span class="text-emerald-400 font-medium">${props.timely}</span></div>` 
+          : '';
+
         const popupHtml = `
           <div class="p-2 space-y-1 text-xs min-w-[210px]">
             <div class="flex items-center justify-between border-b border-slate-700/60 pb-1">
@@ -302,7 +313,9 @@
             </div>
             <div class="text-slate-300 font-medium">${props.route}</div>
             <div class="text-slate-400 text-[11px]">${props.origin} &rarr; ${props.dest}</div>
-            <div class="text-slate-400 text-[11px]">Heading: <span class="font-mono text-slate-200">${props.heading}&deg;</span> · ${props.status || 'Active'}</div>
+            ${nextStopHtml}
+            ${timelyHtml}
+            <div class="text-slate-400 text-[11px]">Heading: <span class="font-mono text-slate-200">${props.heading}&deg;</span></div>
           </div>
         `;
         marker.bindPopup(popupHtml);
@@ -317,25 +330,41 @@
         return;
       }
 
-      container.innerHTML = proximityEvents.map(evt => `
-        <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-indigo-500/50 transition flex flex-col space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="font-semibold text-xs text-slate-200">Train #${evt.train.train_num} (${evt.train.route})</span>
-            <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px]">${evt.distance_miles} mi</span>
+      container.innerHTML = proximityEvents.map(evt => {
+        let badgeClass = "bg-slate-700/50 text-slate-400";
+        let label = "PASSING";
+        if (evt.trajectory === "approaching") {
+          badgeClass = "bg-emerald-500/20 text-emerald-300";
+          label = "APPROACHING";
+        } else if (evt.trajectory === "receding") {
+          badgeClass = "bg-slate-700/40 text-slate-400";
+          label = "DEPARTING";
+        }
+
+        return `
+          <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-indigo-500/50 transition flex flex-col space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-xs text-slate-200">Train #${evt.train.train_num} (${evt.train.route})</span>
+              <div class="flex items-center space-x-1.5">
+                <span class="px-1.5 py-0.5 rounded ${badgeClass} font-mono text-[9px] font-semibold">${label}</span>
+                <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px]">${evt.distance_miles} mi</span>
+              </div>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              Target: <span class="text-slate-200 font-medium">${evt.camera.name}</span>
+            </div>
+            ${evt.train.next_station ? `<div class="text-[10px] text-slate-500">Next stop: ${evt.train.next_station.name} (${evt.train.next_station.code})</div>` : ''}
+            <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-800/60">
+              <span>Speed: <span class="font-mono text-slate-300">${evt.train.speed_mph} mph</span></span>
+              ${evt.eta_minutes ? `<span class="font-mono text-emerald-300">ETA: ~${evt.eta_minutes}m</span>` : '<span class="font-mono text-slate-500">Departing</span>'}
+            </div>
+            <button onclick="openCamModal('${evt.camera.name}', '${evt.camera.location}', '${evt.camera.embed_url}', '${evt.camera.provider}')" class="w-full py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white text-[11px] font-medium flex items-center justify-center space-x-1.5 transition">
+              <i class="fa-solid fa-tv text-[10px]"></i>
+              <span>Jump to Stream</span>
+            </button>
           </div>
-          <div class="text-[11px] text-slate-400">
-            Approaching <span class="text-slate-200 font-medium">${evt.camera.name}</span>
-          </div>
-          <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-800/60">
-            <span>Speed: <span class="font-mono text-slate-300">${evt.train.speed_mph} mph</span></span>
-            ${evt.eta_minutes ? `<span class="font-mono text-indigo-300">ETA: ~${evt.eta_minutes}m</span>` : ''}
-          </div>
-          <button onclick="openCamModal('${evt.camera.name}', '${evt.camera.location}', '${evt.camera.embed_url}', '${evt.camera.provider}')" class="w-full py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white text-[11px] font-medium flex items-center justify-center space-x-1.5 transition">
-            <i class="fa-solid fa-tv text-[10px]"></i>
-            <span>Jump to Stream</span>
-          </button>
-        </div>
-      `).join('');
+        `;
+      }).join('');
     }
 
     function filterTrains(type) {

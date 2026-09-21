@@ -1,13 +1,13 @@
 """Highball Railfan Webcam Spatial Indexer & Proximity Engine.
 
 Indexes high-traffic public rail webcams (Virtual Railfan, YouTube Live, RailStream)
-and calculates spatial proximity to active train GPS telemetry.
+and calculates spatial proximity and directional trajectory to active train GPS telemetry.
 Generates webcams.geojson for Leaflet dark canvas overlay.
 """
 
 import json
 import math
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # Curated registry of verified, high-uptime public railfan webcams
 PUBLIC_RAIL_CAMS = [
@@ -110,14 +110,104 @@ def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float
     return r * c
 
 
-def find_nearby_cameras(train_lat: float, train_lon: float, max_miles: float = 10.0) -> List[Dict]:
-    """Finds all registered rail cameras within max_miles of a train coordinate."""
+def calculate_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculates initial compass bearing in degrees (0-360) from point 1 to point 2."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    y = math.sin(delta_lambda) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(delta_lambda)
+
+    bearing = math.degrees(math.atan2(y, x))
+    return (bearing + 360.0) % 360.0
+
+
+COMPASS_POINTS = {
+    "N": 0.0,
+    "NNE": 22.5,
+    "NE": 45.0,
+    "ENE": 67.5,
+    "E": 90.0,
+    "ESE": 112.5,
+    "SE": 135.0,
+    "SSE": 157.5,
+    "S": 180.0,
+    "SSW": 202.5,
+    "SW": 225.0,
+    "WSW": 247.5,
+    "W": 270.0,
+    "WNW": 292.5,
+    "NW": 315.0,
+    "NNW": 337.5,
+}
+
+
+def parse_heading_degrees(heading: Any) -> Optional[float]:
+    """Normalizes heading to float degrees (0-360), handling compass strings like 'N' or 'SW'."""
+    if heading is None:
+        return None
+    if isinstance(heading, (int, float)):
+        return float(heading) % 360.0
+    if isinstance(heading, str):
+        h = heading.strip().upper()
+        if h in COMPASS_POINTS:
+            return COMPASS_POINTS[h]
+        try:
+            return float(h) % 360.0
+        except ValueError:
+            return None
+    return None
+
+
+def calculate_trajectory_status(
+    train_lat: float,
+    train_lon: float,
+    train_heading: Any,
+    cam_lat: float,
+    cam_lon: float,
+) -> Tuple[str, float]:
+    """Determines if the train is approaching, receding, or passing the camera.
+
+    Returns (trajectory_status, bearing_to_cam).
+    - approaching: heading vector is within 60 degrees of camera bearing
+    - receding: heading vector is >= 120 degrees away from camera bearing
+    - passing: lateral/transverse angle (60-120 degrees)
+    """
+    bearing_to_cam = calculate_bearing(train_lat, train_lon, cam_lat, cam_lon)
+    heading_deg = parse_heading_degrees(train_heading)
+    if heading_deg is None:
+        return "unknown", round(bearing_to_cam, 1)
+
+    diff = abs((heading_deg - bearing_to_cam + 180.0) % 360.0 - 180.0)
+
+    if diff <= 60.0:
+        status = "approaching"
+    elif diff >= 120.0:
+        status = "receding"
+    else:
+        status = "passing"
+
+    return status, round(bearing_to_cam, 1)
+
+
+def find_nearby_cameras(
+    train_lat: float,
+    train_lon: float,
+    train_heading: Optional[float] = None,
+    max_miles: float = 10.0,
+) -> List[Dict]:
+    """Finds all registered rail cameras within max_miles of a train coordinate with trajectory."""
     nearby = []
     for cam in PUBLIC_RAIL_CAMS:
         dist = haversine_miles(train_lat, train_lon, cam["lat"], cam["lon"])
         if dist <= max_miles:
             cam_copy = dict(cam)
             cam_copy["distance_miles"] = round(dist, 2)
+            status, bearing_cam = calculate_trajectory_status(
+                train_lat, train_lon, train_heading, cam["lat"], cam["lon"]
+            )
+            cam_copy["trajectory"] = status
+            cam_copy["bearing_to_cam"] = bearing_cam
             nearby.append(cam_copy)
     nearby.sort(key=lambda x: x["distance_miles"])
     return nearby
@@ -138,6 +228,7 @@ def export_webcams_geojson(out_path: str = "/workspace/scratch/highball/webcams.
                 "name": cam["name"],
                 "location": cam["location"],
                 "route": cam["route"],
+                "subdivision": cam["subdivision"],
                 "milepost": cam["milepost"],
                 "provider": cam["provider"],
                 "embed_url": f"https://www.youtube.com/embed/{cam['youtube_live_id']}?autoplay=1",
@@ -158,9 +249,8 @@ def export_webcams_geojson(out_path: str = "/workspace/scratch/highball/webcams.
 
 if __name__ == "__main__":
     export_webcams_geojson()
-    # Test proximity with a coordinate near Fullerton, CA
-    sample_lat, sample_lon = 33.875, -117.925
-    matches = find_nearby_cameras(sample_lat, sample_lon, max_miles=5.0)
-    print(f"[*] Found {len(matches)} cam(s) near ({sample_lat}, {sample_lon}):")
+    sample_lat, sample_lon, heading = 33.85, -117.92, 355.0  # Approaching Fullerton from South
+    matches = find_nearby_cameras(sample_lat, sample_lon, train_heading=heading, max_miles=5.0)
+    print(f"[*] Found {len(matches)} cam(s) near sample point:")
     for m in matches:
-        print(f"  - {m['name']} ({m['distance_miles']} mi away) -> {m['milepost']}")
+        print(f"  - {m['name']} ({m['distance_miles']} mi away) -> Status: {m['trajectory'].upper()}")

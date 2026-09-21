@@ -3,7 +3,13 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from cam_lookup import PUBLIC_RAIL_CAMS, find_nearby_cameras, haversine_miles
+from cam_lookup import (
+    PUBLIC_RAIL_CAMS,
+    calculate_bearing,
+    calculate_trajectory_status,
+    find_nearby_cameras,
+    haversine_miles,
+)
 from server import app
 
 
@@ -20,13 +26,34 @@ def test_haversine_distance():
     assert 0.4 < dist < 0.6
 
 
+def test_bearing_and_trajectory():
+    # Point A due South of Point B (Bearing should be ~0 deg North)
+    p_south_lat, p_south_lon = 33.0, -117.0
+    p_north_lat, p_north_lon = 34.0, -117.0
+    bearing = calculate_bearing(p_south_lat, p_south_lon, p_north_lat, p_north_lon)
+    assert -1.0 <= bearing <= 1.0 or 359.0 <= bearing <= 360.0
+
+    # Approaching case: heading north (5 deg) towards camera due north
+    status, b = calculate_trajectory_status(p_south_lat, p_south_lon, 5.0, p_north_lat, p_north_lon)
+    assert status == "approaching"
+
+    # Receding case: heading south (180 deg) away from camera due north
+    status, b = calculate_trajectory_status(p_south_lat, p_south_lon, 180.0, p_north_lat, p_north_lon)
+    assert status == "receding"
+
+    # Passing case: heading east (90 deg) transverse to camera
+    status, b = calculate_trajectory_status(p_south_lat, p_south_lon, 90.0, p_north_lat, p_north_lon)
+    assert status == "passing"
+
+
 def test_find_nearby_cameras():
     # Coordinate right next to Horseshoe Curve
     hc_lat, hc_lon = 40.4965, -78.4842
-    matches = find_nearby_cameras(hc_lat, hc_lon, max_miles=5.0)
+    matches = find_nearby_cameras(hc_lat, hc_lon, train_heading=90.0, max_miles=5.0)
     assert len(matches) >= 1
     assert matches[0]["cam_id"] == "cam_horseshoe_curve"
     assert matches[0]["distance_miles"] < 0.1
+    assert "trajectory" in matches[0]
 
 
 def test_health_endpoint(client):
@@ -53,12 +80,14 @@ def test_root_serves_html(client):
     assert "Project Highball" in resp.text
 
 
-def test_proximity_endpoint_structure(client):
-    # Proximity endpoint returns structured events even if no trains are within threshold
-    resp = client.get("/api/proximity?max_miles=5.0")
+def test_proximity_endpoint_structure_and_filter(client):
+    resp = client.get("/api/proximity?max_miles=5.0&trajectory=approaching")
     assert resp.status_code in [200, 502]
     if resp.status_code == 200:
         data = resp.json()
         assert "events" in data
         assert "total_matches" in data
         assert data["max_miles_threshold"] == 5.0
+        assert data["filter_trajectory"] == "approaching"
+        for ev in data["events"]:
+            assert ev["trajectory"] == "approaching"

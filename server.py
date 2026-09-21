@@ -4,7 +4,7 @@ Provides:
 - GET /: Highball Dark Leaflet Live Ops Map
 - GET /api/trains: Live Amtrak train GeoJSON (cached 15s to respect upstream API)
 - GET /api/cams: Curated railfan webcam GeoJSON
-- GET /api/proximity: Live calculation of trains within proximity of webcams (<15 miles)
+- GET /api/proximity: Live calculation of trains within proximity of webcams with trajectory and station stops
 - GET /health: Telemetry and upstream status
 """
 
@@ -20,7 +20,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from cam_lookup import PUBLIC_RAIL_CAMS, find_nearby_cameras, haversine_miles
+from cam_lookup import (
+    PUBLIC_RAIL_CAMS,
+    calculate_trajectory_status,
+    find_nearby_cameras,
+    haversine_miles,
+)
 
 BASE_DIR = Path(__file__).parent
 INDEX_HTML = BASE_DIR / "index.html"
@@ -29,7 +34,7 @@ WEBCAMS_GEOJSON = BASE_DIR / "webcams.geojson"
 app = FastAPI(
     title="Highball Railfan Transit & Webcam Engine",
     description="Spatial telemetry engine correlating live Amtrak trains with public railfan webcams",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -64,6 +69,20 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
         for train_id, instances in data.items():
             for t in instances:
                 if t.get("trainState") == "Active" and t.get("lat") and t.get("lon"):
+                    # Extract next station stop and schedule context
+                    stations = t.get("stations", [])
+                    next_station = None
+                    for stn in stations:
+                        if stn.get("status") in ["Enroute", "Station"]:
+                            next_station = {
+                                "name": stn.get("name"),
+                                "code": stn.get("code"),
+                                "status": stn.get("status"),
+                                "arr": stn.get("arr") or stn.get("schArr"),
+                                "dep": stn.get("dep") or stn.get("schDep"),
+                            }
+                            break
+
                     feature = {
                         "type": "Feature",
                         "geometry": {
@@ -81,6 +100,7 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
                             "origin": t.get("origName"),
                             "dest": t.get("destName"),
                             "updated_at": t.get("updatedAt"),
+                            "next_station": next_station,
                         },
                     }
                     features.append(feature)
@@ -137,8 +157,11 @@ async def get_trains():
 
 
 @app.get("/api/proximity")
-async def get_proximity_events(max_miles: float = Query(default=15.0, ge=1.0, le=50.0)):
-    """Correlates active trains with webcams and returns proximity events sorted by distance."""
+async def get_proximity_events(
+    max_miles: float = Query(default=15.0, ge=1.0, le=50.0),
+    trajectory: Optional[str] = Query(default=None, description="Filter by approaching, receding, or passing"),
+):
+    """Correlates active trains with webcams and returns proximity events with trajectory and ETA."""
     trains_geo = fetch_live_train_geojson()
     proximity_matches = []
 
@@ -150,13 +173,27 @@ async def get_proximity_events(max_miles: float = Query(default=15.0, ge=1.0, le
         for cam in PUBLIC_RAIL_CAMS:
             dist = haversine_miles(lat, lon, cam["lat"], cam["lon"])
             if dist <= max_miles:
+                traj_status, bearing_cam = calculate_trajectory_status(
+                    lat, lon, props.get("heading"), cam["lat"], cam["lon"]
+                )
+
+                if trajectory and traj_status != trajectory:
+                    continue
+
+                speed = props["speed_mph"]
+                eta_minutes = None
+                if traj_status == "approaching" and speed > 5:
+                    eta_minutes = round((dist / speed) * 60, 1)
+
                 proximity_matches.append({
                     "train": {
                         "train_num": props["train_num"],
                         "route": props["route"],
-                        "speed_mph": props["speed_mph"],
+                        "speed_mph": speed,
                         "heading": props["heading"],
                         "dest": props["dest"],
+                        "timely": props["timely"],
+                        "next_station": props.get("next_station"),
                     },
                     "camera": {
                         "cam_id": cam["cam_id"],
@@ -168,7 +205,9 @@ async def get_proximity_events(max_miles: float = Query(default=15.0, ge=1.0, le
                         "embed_url": f"https://www.youtube.com/embed/{cam['youtube_live_id']}?autoplay=1",
                     },
                     "distance_miles": round(dist, 2),
-                    "eta_minutes": round((dist / max(props["speed_mph"], 1.0)) * 60, 1) if props["speed_mph"] > 5 else None,
+                    "trajectory": traj_status,
+                    "bearing_to_cam": bearing_cam,
+                    "eta_minutes": eta_minutes,
                 })
 
     proximity_matches.sort(key=lambda x: x["distance_miles"])
@@ -176,6 +215,7 @@ async def get_proximity_events(max_miles: float = Query(default=15.0, ge=1.0, le
         "timestamp": time.time(),
         "total_matches": len(proximity_matches),
         "max_miles_threshold": max_miles,
+        "filter_trajectory": trajectory,
         "events": proximity_matches,
     }
 
