@@ -101,6 +101,7 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
                             "dest": t.get("destName"),
                             "updated_at": t.get("updatedAt"),
                             "next_station": next_station,
+                            "agency": "Amtrak",
                         },
                     }
                     features.append(feature)
@@ -151,9 +152,20 @@ async def get_webcams():
 
 
 @app.get("/api/trains")
-async def get_trains():
-    """Returns live GeoJSON FeatureCollection of active Amtrak trains."""
-    return fetch_live_train_geojson()
+async def get_trains(agency: Optional[str] = Query(default=None)):
+    """Returns live GeoJSON FeatureCollection of active trains, optionally filtered by agency."""
+    geojson = fetch_live_train_geojson()
+    if not agency or agency.lower() == "all":
+        return geojson
+
+    filtered = [f for f in geojson.get("features", []) if f["properties"].get("agency", "").lower() == agency.lower()]
+    return {
+        "type": "FeatureCollection",
+        "timestamp": geojson.get("timestamp"),
+        "total_active": len(filtered),
+        "features": filtered,
+    }
+
 
 
 @app.get("/api/proximity")

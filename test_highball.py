@@ -117,3 +117,14 @@ def test_gtfs_rt_parser():
     assert feat["properties"]["speed_mph"] > 40.0
     assert feat["properties"]["heading"] == 90.0
 
+
+def test_get_trains_agency_filter(client):
+    resp = client.get("/api/trains?agency=Amtrak")
+    assert resp.status_code in [200, 502]
+    if resp.status_code == 200:
+        data = resp.json()
+        assert "features" in data
+        for f in data["features"]:
+            assert f["properties"]["agency"] == "Amtrak"
+
+
