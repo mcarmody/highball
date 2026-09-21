@@ -128,3 +128,15 @@ def test_get_trains_agency_filter(client):
             assert f["properties"]["agency"] == "Amtrak"
 
 
+def test_corridors_endpoint(client):
+    resp = client.get("/api/corridors")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "FeatureCollection"
+    assert data["total_corridors"] >= 4
+    nec = next(f for f in data["features"] if f["properties"]["corridor_id"] == "corridor_nec")
+    assert nec["geometry"]["type"] == "LineString"
+    assert len(nec["geometry"]["coordinates"]) >= 5
+
+
+

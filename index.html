@@ -57,6 +57,10 @@
 
     <!-- Quick Action / Status Pill -->
     <div class="flex items-center space-x-3">
+      <button id="audio-btn" onclick="toggleAudio()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-indigo-400 flex items-center transition" title="Toggle audio chime">
+        <i class="fa-solid fa-bell"></i>
+        <span class="ml-1 hidden sm:inline">Alerts: ON</span>
+      </button>
       <button onclick="toggleSidebar()" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 flex items-center space-x-1.5 transition">
         <i class="fa-solid fa-satellite"></i>
         <span>Cam Encounters</span>
@@ -158,6 +162,7 @@
 
       trainLayerGroup = L.layerGroup().addTo(map);
       camLayerGroup = L.layerGroup().addTo(map);
+      corridorLayerGroup = L.layerGroup().addTo(map);
 
       // Attribution bottom left
       L.control.attribution({ position: 'bottomleft' })
@@ -241,6 +246,57 @@
       }
     }
 
+    // Load Corridors
+    async function loadCorridors() {
+      try {
+        const resp = await fetch('/api/corridors');
+        const data = await resp.json();
+        L.geoJSON(data, {
+          style: { color: '#6366f1', weight: 2, opacity: 0.35, dashArray: '3, 6' },
+          onEachFeature: (feature, layer) => {
+            layer.bindTooltip(`${feature.properties.name} (${feature.properties.operator})`, { sticky: true });
+          }
+        }).addTo(corridorLayerGroup);
+      } catch (err) {
+        console.error('Failed to load corridors:', err);
+      }
+    }
+
+    // Audio Alert Chime
+    let audioEnabled = true;
+    let audioCtx = null;
+    let lastAlertedTrain = null;
+
+    function toggleAudio() {
+      audioEnabled = !audioEnabled;
+      const btn = document.getElementById('audio-btn');
+      if (audioEnabled) {
+        btn.innerHTML = '<i class="fa-solid fa-bell"></i><span class="ml-1 hidden sm:inline">Alerts: ON</span>';
+        btn.className = 'px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-indigo-400 flex items-center transition';
+      } else {
+        btn.innerHTML = '<i class="fa-solid fa-bell-slash"></i><span class="ml-1 hidden sm:inline">Alerts: OFF</span>';
+        btn.className = 'px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-500 flex items-center transition';
+      }
+    }
+
+    function playApproachChime() {
+      if (!audioEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+        osc.frequency.exponentialRampToValueAtTime(880.0, audioCtx.currentTime + 0.15); // A5
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.65);
+      } catch(e) { console.log('Audio error:', e); }
+    }
+
     // Load Trains & Proximity
     async function refreshTelemetry() {
       try {
@@ -266,6 +322,13 @@
           badge.classList.add('hidden');
         }
 
+        // Trigger audio chime if a train is approaching within 3 miles
+        const imminent = proximityEvents.find(e => e.trajectory === 'approaching' && e.distance_miles <= 3.0);
+        if (imminent && imminent.train.train_num !== lastAlertedTrain) {
+          lastAlertedTrain = imminent.train.train_num;
+          playApproachChime();
+        }
+
         renderTrains();
         renderEncounterList();
       } catch (err) {
@@ -274,6 +337,7 @@
         document.getElementById('status-dot').className = 'w-2 h-2 rounded-full bg-rose-500';
       }
     }
+
 
     function renderTrains() {
       trainLayerGroup.clearLayers();
@@ -416,6 +480,7 @@
     window.addEventListener('DOMContentLoaded', () => {
       initMap();
       loadWebcams();
+      loadCorridors();
       refreshTelemetry();
       setInterval(refreshTelemetry, 15000); // 15s refresh
     });

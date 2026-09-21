@@ -30,6 +30,7 @@ from cam_lookup import (
 BASE_DIR = Path(__file__).parent
 INDEX_HTML = BASE_DIR / "index.html"
 WEBCAMS_GEOJSON = BASE_DIR / "webcams.geojson"
+CORRIDORS_GEOJSON = BASE_DIR / "corridors.geojson"
 
 app = FastAPI(
     title="Highball Railfan Transit & Webcam Engine",
@@ -149,6 +150,17 @@ async def get_webcams():
         with open(WEBCAMS_GEOJSON, "r") as f:
             return json.load(f)
     return {"type": "FeatureCollection", "features": []}
+
+
+@app.get("/api/corridors")
+async def get_corridors():
+    """Returns GeoJSON FeatureCollection of mainline rail corridors."""
+    if CORRIDORS_GEOJSON.exists():
+        with open(CORRIDORS_GEOJSON, "r") as f:
+            return json.load(f)
+    from rail_corridors import generate_corridors_geojson
+    return generate_corridors_geojson(str(CORRIDORS_GEOJSON))
+
 
 
 @app.get("/api/trains")
