@@ -100,11 +100,27 @@
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
-      <div class="p-3 text-[11px] text-slate-400 border-b border-slate-800/60 bg-slate-950/40">
-        Live trains correlated with verified public rail webcams with trajectory and ETA.
+      <!-- Navigation Tabs: Active vs Completed History -->
+      <div class="px-3 pt-2 pb-0 flex space-x-4 border-b border-slate-800 bg-slate-950/60">
+        <button id="tab-btn-active" onclick="switchSidebarTab('active')" class="pb-2 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-1.5 transition">
+          <i class="fa-solid fa-radar"></i>
+          <span>Active In-Zone</span>
+          <span id="tab-count-active" class="px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px]">0</span>
+        </button>
+        <button id="tab-btn-history" onclick="switchSidebarTab('history')" class="pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+          <span>Flyby History</span>
+          <span id="tab-count-history" class="px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400 text-[10px]">0</span>
+        </button>
+      </div>
+      <div class="p-2.5 text-[11px] text-slate-400 border-b border-slate-800/60 bg-slate-950/30 flex items-center justify-between" id="sidebar-subtext">
+        <span>Live trains correlated with verified public rail webcams.</span>
       </div>
       <div id="encounters-list" class="flex-1 overflow-y-auto p-3 space-y-2">
         <div class="text-center py-8 text-xs text-slate-500">Scanning spatial corridors...</div>
+      </div>
+      <div id="history-list" class="flex-1 overflow-y-auto p-3 space-y-2 hidden">
+        <div class="text-center py-8 text-xs text-slate-500">No completed flybys logged yet.</div>
       </div>
     </aside>
 
@@ -138,9 +154,12 @@
     let map = null;
     let trainLayerGroup = null;
     let camLayerGroup = null;
+    let corridorLayerGroup = null;
     let trainData = [];
     let camData = [];
     let proximityEvents = [];
+    let historyEvents = [];
+    let currentSidebarTab = 'active';
     let currentFilter = 'all';
     let sidebarOpen = false;
 
@@ -300,20 +319,28 @@
     // Load Trains & Proximity
     async function refreshTelemetry() {
       try {
-        const [trainsResp, proxResp] = await Promise.all([
+        const [trainsResp, proxResp, histResp] = await Promise.all([
           fetch('/api/trains'),
-          fetch('/api/proximity?max_miles=15.0')
+          fetch('/api/proximity?max_miles=15.0'),
+          fetch('/api/encounters/history?limit=25')
         ]);
         
         const trainsGeo = await trainsResp.json();
         const proxData = await proxResp.json();
+        const histData = histResp.ok ? await histResp.json() : [];
 
         trainData = trainsGeo.features || [];
         proximityEvents = proxData.events || [];
+        historyEvents = Array.isArray(histData) ? histData : [];
 
         document.getElementById('stat-trains').innerText = `${trainData.length} Active`;
         document.getElementById('stat-encounters').innerText = proximityEvents.length;
         
+        const tabActiveBadge = document.getElementById('tab-count-active');
+        if (tabActiveBadge) tabActiveBadge.innerText = proximityEvents.length;
+        const tabHistoryBadge = document.getElementById('tab-count-history');
+        if (tabHistoryBadge) tabHistoryBadge.innerText = historyEvents.length;
+
         const badge = document.getElementById('encounter-badge');
         if (proximityEvents.length > 0) {
           badge.innerText = proximityEvents.length;
@@ -331,6 +358,7 @@
 
         renderTrains();
         renderEncounterList();
+        renderHistoryList();
       } catch (err) {
         console.error('Telemetry fetch error:', err);
         document.getElementById('status-text').innerText = 'Degraded';
@@ -426,6 +454,91 @@
               <i class="fa-solid fa-tv text-[10px]"></i>
               <span>Jump to Stream</span>
             </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function switchSidebarTab(tab) {
+      currentSidebarTab = tab;
+      const btnActive = document.getElementById('tab-btn-active');
+      const btnHistory = document.getElementById('tab-btn-history');
+      const listActive = document.getElementById('encounters-list');
+      const listHistory = document.getElementById('history-list');
+      const subtext = document.getElementById('sidebar-subtext');
+
+      if (tab === 'active') {
+        btnActive.className = 'pb-2 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-1.5 transition';
+        btnHistory.className = 'pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition';
+        listActive.classList.remove('hidden');
+        listHistory.classList.add('hidden');
+        if (subtext) subtext.innerHTML = '<span>Live trains correlated with verified public rail webcams.</span>';
+      } else {
+        btnHistory.className = 'pb-2 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 flex items-center space-x-1.5 transition';
+        btnActive.className = 'pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition';
+        listHistory.classList.remove('hidden');
+        listActive.classList.add('hidden');
+        if (subtext) subtext.innerHTML = '<span>Recent completed train flybys with CPA and peak speed.</span>';
+      }
+    }
+
+    function renderHistoryList() {
+      const container = document.getElementById('history-list');
+      if (!container) return;
+      if (!historyEvents || historyEvents.length === 0) {
+        container.innerHTML = `<div class="text-center py-8 text-xs text-slate-500">No completed flybys logged yet.</div>`;
+        return;
+      }
+
+      container.innerHTML = historyEvents.map(evt => {
+        const durationSec = evt.duration_seconds || 0;
+        const durationStr = durationSec >= 60 
+          ? `${Math.floor(durationSec / 60)}m ${Math.round(durationSec % 60)}s`
+          : `${Math.round(durationSec)}s`;
+        const timeStr = evt.start_time_iso ? evt.start_time_iso.substring(11, 19) + ' UTC' : '';
+
+        const cam = camData.find(c => c.cam_id === evt.camera_id) || {
+          name: evt.camera_name || 'Rail Cam',
+          location: evt.location || '',
+          embed_url: `https://www.youtube.com/embed/${evt.camera_id}?autoplay=1`,
+          provider: 'Railfan Stream'
+        };
+
+        const safeCamName = (cam.name || '').replace(/'/g, "\\'");
+        const safeCamLoc = (cam.location || '').replace(/'/g, "\\'");
+        const safeEmbedUrl = (cam.embed_url || '').replace(/'/g, "\\'");
+        const safeProvider = (cam.provider || '').replace(/'/g, "\\'");
+
+        return `
+          <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-slate-700 transition flex flex-col space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="font-semibold text-xs text-slate-200">Train #${evt.train_num} (${evt.route})</span>
+              <span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[9px] uppercase font-semibold">Completed</span>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              Camera: <span class="text-slate-200 font-medium">${evt.camera_name}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5 pt-1.5 pb-1 border-t border-b border-slate-800/60 text-[10px]">
+              <div>
+                <span class="text-slate-500 block">CPA:</span>
+                <span class="font-mono font-medium text-amber-300">${evt.closest_distance_miles} mi</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Peak Speed:</span>
+                <span class="font-mono font-medium text-slate-200">${evt.peak_speed_mph} mph</span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Duration:</span>
+                <span class="font-mono font-medium text-indigo-300">${durationStr}</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between text-[10px] text-slate-500">
+              <span>Time: <span class="font-mono text-slate-400">${timeStr}</span></span>
+              <button onclick="openCamModal('${safeCamName}', '${safeCamLoc}', '${safeEmbedUrl}', '${safeProvider}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] flex items-center space-x-1 transition">
+                <i class="fa-solid fa-video text-[9px]"></i>
+                <span>Cam</span>
+              </button>
+            </div>
           </div>
         `;
       }).join('');
