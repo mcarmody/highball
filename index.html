@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Highball</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  html, body, #map { height: 100%; margin: 0; background: #0b0f14; }
+  body { font-family: -apple-system, system-ui, sans-serif; color: #cbd5e1; }
+  .leaflet-popup-content-wrapper { background: #111827; color: #e5e7eb; }
+  .leaflet-popup-tip { background: #111827; }
+  .train-label {
+    background: rgba(11,15,20,0.85);
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 2px 6px;
+    color: #7dd3fc;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  #hud {
+    position: absolute; top: 10px; left: 10px; z-index: 1000;
+    background: rgba(11,15,20,0.85); border: 1px solid #334155;
+    border-radius: 6px; padding: 8px 12px; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div id="hud">Highball — live rail telemetry<br><span id="count">loading…</span></div>
+<div id="map"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+  const map = L.map('map', { zoomControl: true }).setView([39.5, -98.35], 4);
+
+  // Dark basemap (CARTO dark_all, free tier, no key)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(map);
+
+  let markers = L.layerGroup().addTo(map);
+
+  function loadTrains() {
+    fetch('trains.geojson?_=' + Date.now())
+      .then(r => r.json())
+      .then(data => {
+        markers.clearLayers();
+        data.features.forEach(f => {
+          const [lon, lat] = f.geometry.coordinates;
+          const p = f.properties;
+          const dot = L.circleMarker([lat, lon], {
+            radius: 5, color: '#7dd3fc', fillColor: '#38bdf8',
+            fillOpacity: 0.9, weight: 1.5
+          }).bindPopup(
+            `<b>${p.route}</b> (Train ${p.train_num})<br>` +
+            `${p.origin} → ${p.destination}<br>` +
+            `Heading ${p.heading || '—'}, ${Math.round(p.velocity || 0)} mph`
+          );
+          dot.addTo(markers);
+        });
+        document.getElementById('count').textContent =
+          data.features.length + ' trains tracking live';
+      })
+      .catch(err => {
+        document.getElementById('count').textContent = 'feed unavailable';
+        console.error(err);
+      });
+  }
+
+  loadTrains();
+  setInterval(loadTrains, 30000); // matches ingest cadence
+</script>
+</body>
+</html>
