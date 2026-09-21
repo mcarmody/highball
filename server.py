@@ -27,11 +27,15 @@ from cam_lookup import (
     haversine_miles,
 )
 from encounter_tracker import EncounterTracker
+from gtfs_rt_parser import parse_gtfs_rt_vehicle_positions, parse_mbta_v3_vehicles
 
 BASE_DIR = Path(__file__).parent
 INDEX_HTML = BASE_DIR / "index.html"
 WEBCAMS_GEOJSON = BASE_DIR / "webcams.geojson"
 CORRIDORS_GEOJSON = BASE_DIR / "corridors.geojson"
+
+MBTA_API_KEY = os.getenv("MBTA_API_KEY", "ec4a5e0d15184cd3b22ff1b02a4f534f")
+SF_511_API_KEY = os.getenv("SF_511_API_KEY", "5727dbc7-a646-44b2-b8e5-b5ffe95f9cea")
 
 encounter_tracker = EncounterTracker(max_history=50, encounter_radius_miles=5.0)
 
@@ -49,7 +53,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Cache for Amtraker upstream data to avoid hitting rate limits
+# Cache for upstream transit data to avoid hitting rate limits
 _train_cache: Dict[str, Any] = {
     "timestamp": 0.0,
     "geojson": None,
@@ -58,71 +62,94 @@ CACHE_TTL_SECONDS = 15.0
 
 
 def fetch_live_train_geojson() -> Dict[str, Any]:
-    """Fetches live trains from Amtraker v3 API or returns cached copy."""
+    """Fetches live trains from Amtraker v3 API, MBTA, and Caltrain (511 SF Bay)."""
     now = time.time()
     if _train_cache["geojson"] and (now - _train_cache["timestamp"] < CACHE_TTL_SECONDS):
         return _train_cache["geojson"]
 
-    url = "https://api-v3.amtraker.com/v3/trains"
+    features = []
+
+    # 1. Amtrak National Telemetry
+    url_amtrak = "https://api-v3.amtraker.com/v3/trains"
     try:
-        resp = requests.get(url, timeout=5.0)
-        resp.raise_for_status()
-        data = resp.json()
+        resp = requests.get(url_amtrak, timeout=5.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            for train_id, instances in data.items():
+                for t in instances:
+                    if t.get("trainState") == "Active" and t.get("lat") and t.get("lon"):
+                        stations = t.get("stations", [])
+                        next_station = None
+                        for stn in stations:
+                            if stn.get("status") in ["Enroute", "Station"]:
+                                next_station = {
+                                    "name": stn.get("name"),
+                                    "code": stn.get("code"),
+                                    "status": stn.get("status"),
+                                    "arr": stn.get("arr") or stn.get("schArr"),
+                                    "dep": stn.get("dep") or stn.get("schDep"),
+                                }
+                                break
 
-        features = []
-        for train_id, instances in data.items():
-            for t in instances:
-                if t.get("trainState") == "Active" and t.get("lat") and t.get("lon"):
-                    # Extract next station stop and schedule context
-                    stations = t.get("stations", [])
-                    next_station = None
-                    for stn in stations:
-                        if stn.get("status") in ["Enroute", "Station"]:
-                            next_station = {
-                                "name": stn.get("name"),
-                                "code": stn.get("code"),
-                                "status": stn.get("status"),
-                                "arr": stn.get("arr") or stn.get("schArr"),
-                                "dep": stn.get("dep") or stn.get("schDep"),
-                            }
-                            break
-
-                    feature = {
-                        "type": "Feature",
-                        "geometry": {
-                            "type": "Point",
-                            "coordinates": [float(t["lon"]), float(t["lat"])],
-                        },
-                        "properties": {
-                            "id": t.get("trainID"),
-                            "train_num": t.get("trainNum"),
-                            "route": t.get("routeName"),
-                            "speed_mph": round(float(t.get("velocity", 0.0)), 1),
-                            "heading": t.get("heading"),
-                            "timely": t.get("trainTimely"),
-                            "status": t.get("statusMsg"),
-                            "origin": t.get("origName"),
-                            "dest": t.get("destName"),
-                            "updated_at": t.get("updatedAt"),
-                            "next_station": next_station,
-                            "agency": "Amtrak",
-                        },
-                    }
-                    features.append(feature)
-
-        geojson = {
-            "type": "FeatureCollection",
-            "timestamp": now,
-            "total_active": len(features),
-            "features": features,
-        }
-        _train_cache["timestamp"] = now
-        _train_cache["geojson"] = geojson
-        return geojson
+                        features.append({
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "Point",
+                                "coordinates": [float(t["lon"]), float(t["lat"])],
+                            },
+                            "properties": {
+                                "id": t.get("trainID"),
+                                "train_num": t.get("trainNum"),
+                                "route": t.get("routeName"),
+                                "speed_mph": round(float(t.get("velocity", 0.0)), 1),
+                                "heading": t.get("heading"),
+                                "timely": t.get("trainTimely"),
+                                "status": t.get("statusMsg"),
+                                "origin": t.get("origName"),
+                                "dest": t.get("destName"),
+                                "updated_at": t.get("updatedAt"),
+                                "next_station": next_station,
+                                "agency": "Amtrak",
+                            },
+                        })
     except Exception as exc:
-        if _train_cache["geojson"]:
-            return _train_cache["geojson"]
-        raise HTTPException(status_code=502, detail=f"Amtraker upstream error: {exc}")
+        print(f"[Highball] Amtraker fetch warning: {exc}")
+
+    # 2. MBTA Commuter Rail (Boston / Northeast Corridor)
+    if MBTA_API_KEY:
+        try:
+            mbta_url = f"https://api-v3.mbta.com/vehicles?filter[route_type]=2&include=route&api_key={MBTA_API_KEY}"
+            resp = requests.get(mbta_url, timeout=5.0)
+            if resp.status_code == 200:
+                mbta_geojson = parse_mbta_v3_vehicles(resp.json())
+                features.extend(mbta_geojson.get("features", []))
+        except Exception as exc:
+            print(f"[Highball] MBTA fetch warning: {exc}")
+
+    # 3. Caltrain Commuter Rail (511 SF Bay Area)
+    if SF_511_API_KEY:
+        try:
+            sf_url = f"http://api.511.org/transit/vehiclepositions?api_key={SF_511_API_KEY}&agency=CT&format=json"
+            resp = requests.get(sf_url, timeout=5.0)
+            if resp.status_code == 200:
+                sf_data = json.loads(resp.content.decode("utf-8-sig"))
+                caltrain_geojson = parse_gtfs_rt_vehicle_positions(sf_data, agency_id="Caltrain")
+                features.extend(caltrain_geojson.get("features", []))
+        except Exception as exc:
+            print(f"[Highball] 511 Caltrain fetch warning: {exc}")
+
+    if not features and _train_cache["geojson"]:
+        return _train_cache["geojson"]
+
+    geojson = {
+        "type": "FeatureCollection",
+        "timestamp": now,
+        "total_active": len(features),
+        "features": features,
+    }
+    _train_cache["timestamp"] = now
+    _train_cache["geojson"] = geojson
+    return geojson
 
 
 @app.get("/", response_class=FileResponse)

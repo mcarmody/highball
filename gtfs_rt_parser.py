@@ -29,28 +29,29 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
       ]
     }
     """
-    entities = feed_data.get("entity", [])
+    entities = feed_data.get("entity") or feed_data.get("Entities") or []
     features = []
 
     for ent in entities:
-        v = ent.get("vehicle")
+        v = ent.get("vehicle") or ent.get("Vehicle")
         if not v:
             continue
 
-        pos = v.get("position", {})
-        lat = pos.get("latitude")
-        lon = pos.get("longitude")
+        pos = v.get("position") or v.get("Position") or {}
+        lat = pos.get("latitude") or pos.get("Latitude")
+        lon = pos.get("longitude") or pos.get("Longitude")
 
         if lat is None or lon is None:
             continue
 
-        trip = v.get("trip", {})
-        trip_id = trip.get("trip_id", ent.get("id"))
-        route_id = trip.get("route_id", "Regional Rail")
-        speed_mps = pos.get("speed", 0.0)  # meters per second in GTFS-RT spec
+        trip = v.get("trip") or v.get("Trip") or {}
+        trip_id = str(trip.get("trip_id") or trip.get("TripId") or ent.get("id") or ent.get("Id") or "Transit")
+        route_id = str(trip.get("route_id") or trip.get("RouteId") or "Regional Rail")
+        speed_mps = pos.get("speed") or pos.get("Speed") or 0.0
         speed_mph = round(speed_mps * 2.23694, 1) if speed_mps is not None else 0.0
-        bearing = pos.get("bearing")
-        status = v.get("current_status", "IN_TRANSIT_TO").replace("_", " ").title()
+        bearing = pos.get("bearing") or pos.get("Bearing")
+        raw_status = str(v.get("current_status") or v.get("CurrentStatus") or "IN_TRANSIT_TO")
+        status = raw_status.replace("_", " ").title()
 
         features.append({
             "type": "Feature",
@@ -69,7 +70,7 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
                 "status": status,
                 "origin": "Terminal",
                 "dest": "Outbound",
-                "updated_at": v.get("timestamp"),
+                "updated_at": v.get("timestamp") or v.get("Timestamp"),
             },
         })
 
@@ -77,6 +78,56 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
         "type": "FeatureCollection",
         "timestamp": time.time(),
         "agency": agency_id,
+        "total_active": len(features),
+        "features": features,
+    }
+
+
+def parse_mbta_v3_vehicles(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Parses MBTA V3 REST API vehicles payload into Highball GeoJSON."""
+    vehicles = data.get("data", [])
+    features = []
+
+    for v in vehicles:
+        attrs = v.get("attributes", {})
+        lat = attrs.get("latitude")
+        lon = attrs.get("longitude")
+        if lat is None or lon is None:
+            continue
+
+        label = attrs.get("label") or v.get("id", "Commuter")
+        rels = v.get("relationships", {})
+        route_id = rels.get("route", {}).get("data", {}).get("id", "CR")
+        speed_mps = attrs.get("speed")
+        speed_mph = round(speed_mps * 2.23694, 1) if speed_mps is not None else 0.0
+        bearing = attrs.get("bearing")
+        status = (attrs.get("current_status") or "IN_TRANSIT_TO").replace("_", " ").title()
+
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [float(lon), float(lat)],
+            },
+            "properties": {
+                "id": f"MBTA_{label}",
+                "train_num": label,
+                "route": f"MBTA {route_id}",
+                "agency": "MBTA",
+                "speed_mph": speed_mph,
+                "heading": bearing,
+                "timely": "On Time",
+                "status": status,
+                "origin": "Boston",
+                "dest": "Suburbs",
+                "updated_at": attrs.get("updated_at"),
+            },
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "timestamp": time.time(),
+        "agency": "MBTA",
         "total_active": len(features),
         "features": features,
     }
