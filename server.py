@@ -36,6 +36,7 @@ CORRIDORS_GEOJSON = BASE_DIR / "corridors.geojson"
 
 MBTA_API_KEY = os.getenv("MBTA_API_KEY", "ec4a5e0d15184cd3b22ff1b02a4f534f")
 SF_511_API_KEY = os.getenv("SF_511_API_KEY", "5727dbc7-a646-44b2-b8e5-b5ffe95f9cea")
+TRANSITLAND_API_KEY = os.getenv("TRANSITLAND_API_KEY", "iwa_live_tlv2api_280ad7fdff73b31d7326fa84725f34428d0a9cd1aa7209621Z7Vl4")
 
 encounter_tracker = EncounterTracker(max_history=50, encounter_radius_miles=5.0)
 
