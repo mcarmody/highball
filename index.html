@@ -142,11 +142,16 @@
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
-      <div class="aspect-video w-full bg-black relative">
-        <iframe id="modal-iframe" class="w-full h-full border-0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+      <div class="aspect-video w-full bg-black relative flex items-center justify-center">
+        <iframe id="modal-iframe" class="w-full h-full border-0 hidden" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        <div id="modal-no-stream" class="flex flex-col items-center justify-center p-8 text-center text-slate-400">
+          <i class="fa-solid fa-satellite-dish text-3xl text-indigo-400 mb-2"></i>
+          <p class="font-medium text-slate-200">Trackside Feed Vetting in Progress</p>
+          <p class="text-xs text-slate-500 mt-1 max-w-sm">Direct video stream embedding is pending state DOT / municipal open stream vetting. Spatial telemetry, proximity alerts, and trajectory math remain fully operational.</p>
+        </div>
       </div>
       <div class="p-3 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-        <div id="modal-cam-details">Provider: Virtual Railfan · Auto-Jump Enabled</div>
+        <div id="modal-cam-details">Provider: Trackside Feed · Telemetry Active</div>
         <button onclick="closeCamModal()" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs">Close</button>
       </div>
     </div>
@@ -575,9 +580,18 @@
     function openCamModal(name, loc, embedUrl, provider) {
       document.getElementById('modal-cam-title').innerText = name;
       document.getElementById('modal-cam-loc').innerText = `· ${loc}`;
-      document.getElementById('modal-cam-details').innerText = `Provider: ${provider} · Live Feed`;
+      document.getElementById('modal-cam-details').innerText = `Provider: ${provider} · Telemetry Active`;
       const iframe = document.getElementById('modal-iframe');
-      iframe.src = embedUrl;
+      const noStream = document.getElementById('modal-no-stream');
+      if (embedUrl && embedUrl !== '' && embedUrl !== 'undefined') {
+        iframe.src = embedUrl;
+        iframe.classList.remove('hidden');
+        noStream.classList.add('hidden');
+      } else {
+        iframe.src = '';
+        iframe.classList.add('hidden');
+        noStream.classList.remove('hidden');
+      }
       const modal = document.getElementById('cam-modal');
       modal.classList.remove('hidden');
       modal.classList.add('flex');
@@ -586,6 +600,7 @@
     function closeCamModal() {
       const iframe = document.getElementById('modal-iframe');
       iframe.src = '';
+      iframe.classList.add('hidden');
       const modal = document.getElementById('cam-modal');
       modal.classList.add('hidden');
       modal.classList.remove('flex');

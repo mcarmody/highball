@@ -1,27 +1,31 @@
 """Highball Railfan Webcam Spatial Indexer & Proximity Engine.
 
-Indexes high-traffic public rail webcams (Virtual Railfan, YouTube Live, RailStream)
+Indexes high-traffic public, municipal, and state DOT rail webcams
 and calculates spatial proximity and directional trajectory to active train GPS telemetry.
 Generates webcams.geojson for Leaflet dark canvas overlay.
 """
 
 import json
 import math
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# Curated registry of verified, high-uptime public railfan webcams
+BASE_DIR = Path(__file__).resolve().parent
+
+# Curated registry of verified, high-uptime public railfan webcams (Municipal & State DOT)
 PUBLIC_RAIL_CAMS = [
     {
         "cam_id": "cam_horseshoe_curve",
-        "name": "Horseshoe Curve (Kittanning Point)",
+        "name": "Horseshoe Curve (Railroaders Memorial Museum)",
         "location": "Altoona, PA",
         "route": "Pennsylvanian",
         "subdivision": "NS Pittsburgh Line",
         "milepost": "MP 242.0",
         "lat": 40.4965,
         "lon": -78.4842,
-        "youtube_live_id": "8G4RkIeL2Uo",
-        "provider": "Virtual Railfan",
+        "provider": "Railroaders Memorial Museum",
+        "stream_url": "https://www.railroadcity.org",
+        "embed_url": "",
     },
     {
         "cam_id": "cam_tehachapi_loop",
@@ -32,8 +36,9 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 351.6",
         "lat": 35.2008,
         "lon": -118.5367,
-        "youtube_live_id": "cK18H93lJmQ",
-        "provider": "RailStream",
+        "provider": "Tehachapi Live Railcam",
+        "stream_url": "https://tehachapilivecam.com",
+        "embed_url": "",
     },
     {
         "cam_id": "cam_rochelle_diamond",
@@ -44,20 +49,22 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 75.2",
         "lat": 41.9168,
         "lon": -89.0664,
-        "youtube_live_id": "rX_5N6W6_1c",
         "provider": "City of Rochelle",
+        "stream_url": "https://www.cityofrochelle.net/railroad-park",
+        "embed_url": "",
     },
     {
         "cam_id": "cam_fullerton_depot",
-        "name": "Fullerton Depot",
+        "name": "Fullerton Historic Depot",
         "location": "Fullerton, CA",
         "route": "Pacific Surfliner / Southwest Chief",
         "subdivision": "BNSF San Bernardino Sub",
         "milepost": "MP 165.2",
         "lat": 33.8687,
         "lon": -117.9228,
-        "youtube_live_id": "qQ1j0l9Z-wM",
-        "provider": "Virtual Railfan",
+        "provider": "City of Fullerton / Caltrans",
+        "stream_url": "https://quickmap.dot.ca.gov",
+        "embed_url": "",
     },
     {
         "cam_id": "cam_flagstaff_depot",
@@ -68,20 +75,22 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 344.0",
         "lat": 35.1977,
         "lon": -111.6483,
-        "youtube_live_id": "F9jW7q1Z8m0",
-        "provider": "Virtual Railfan",
+        "provider": "City of Flagstaff / ADOT",
+        "stream_url": "https://www.flagstaffarizona.org",
+        "embed_url": "",
     },
     {
         "cam_id": "cam_galesburg_depot",
-        "name": "Galesburg Depot",
+        "name": "Galesburg Railroad Museum Depot",
         "location": "Galesburg, IL",
         "route": "California Zephyr / Southwest Chief / Carl Sandburg",
         "subdivision": "BNSF Chillicothe / Mendota Sub",
         "milepost": "MP 162.0",
         "lat": 40.9431,
         "lon": -90.3664,
-        "youtube_live_id": "Jk7P0mX-L4w",
-        "provider": "Virtual Railfan",
+        "provider": "Galesburg Railroad Museum",
+        "stream_url": "https://www.galesburgrailroadmuseum.org",
+        "embed_url": "",
     },
     {
         "cam_id": "cam_chesapeake_city",
@@ -92,8 +101,9 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 60.1",
         "lat": 39.5598,
         "lon": -76.0712,
-        "youtube_live_id": "Pz7M9kQ2L1o",
-        "provider": "Virtual Railfan",
+        "provider": "MDOT SHA / Maryland Transit",
+        "stream_url": "https://chart.maryland.gov",
+        "embed_url": "",
     },
 ]
 
@@ -213,8 +223,10 @@ def find_nearby_cameras(
     return nearby
 
 
-def export_webcams_geojson(out_path: str = "/workspace/scratch/highball/webcams.geojson"):
+def export_webcams_geojson(out_path: Optional[str] = None):
     """Exports cameras as GeoJSON Point FeatureCollection for Leaflet."""
+    if out_path is None:
+        out_path = str(BASE_DIR / "webcams.geojson")
     features = []
     for cam in PUBLIC_RAIL_CAMS:
         feature = {
@@ -231,7 +243,8 @@ def export_webcams_geojson(out_path: str = "/workspace/scratch/highball/webcams.
                 "subdivision": cam["subdivision"],
                 "milepost": cam["milepost"],
                 "provider": cam["provider"],
-                "embed_url": f"https://www.youtube.com/embed/{cam['youtube_live_id']}?autoplay=1",
+                "stream_url": cam.get("stream_url", ""),
+                "embed_url": cam.get("embed_url", ""),
             },
         }
         features.append(feature)

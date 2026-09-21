@@ -13,12 +13,14 @@
       },
       "properties": {
         "cam_id": "cam_horseshoe_curve",
-        "name": "Horseshoe Curve (Kittanning Point)",
+        "name": "Horseshoe Curve (Railroaders Memorial Museum)",
         "location": "Altoona, PA",
         "route": "Pennsylvanian",
+        "subdivision": "NS Pittsburgh Line",
         "milepost": "MP 242.0",
-        "provider": "Virtual Railfan",
-        "embed_url": "https://www.youtube.com/embed/8G4RkIeL2Uo?autoplay=1"
+        "provider": "Railroaders Memorial Museum",
+        "stream_url": "https://www.railroadcity.org",
+        "embed_url": ""
       }
     },
     {
@@ -35,9 +37,11 @@
         "name": "Tehachapi Loop (Walong)",
         "location": "Tehachapi, CA",
         "route": "San Joaquins (Bus/Freight Interconnect)",
+        "subdivision": "UP Mojave Sub",
         "milepost": "MP 351.6",
-        "provider": "RailStream",
-        "embed_url": "https://www.youtube.com/embed/cK18H93lJmQ?autoplay=1"
+        "provider": "Tehachapi Live Railcam",
+        "stream_url": "https://tehachapilivecam.com",
+        "embed_url": ""
       }
     },
     {
@@ -54,9 +58,11 @@
         "name": "Rochelle Railroad Park (Double Diamond)",
         "location": "Rochelle, IL",
         "route": "Illinois Zephyr / Southwest Chief corridor",
+        "subdivision": "UP Geneva Sub / BNSF Aurora Sub",
         "milepost": "MP 75.2",
         "provider": "City of Rochelle",
-        "embed_url": "https://www.youtube.com/embed/rX_5N6W6_1c?autoplay=1"
+        "stream_url": "https://www.cityofrochelle.net/railroad-park",
+        "embed_url": ""
       }
     },
     {
@@ -70,12 +76,14 @@
       },
       "properties": {
         "cam_id": "cam_fullerton_depot",
-        "name": "Fullerton Depot",
+        "name": "Fullerton Historic Depot",
         "location": "Fullerton, CA",
         "route": "Pacific Surfliner / Southwest Chief",
+        "subdivision": "BNSF San Bernardino Sub",
         "milepost": "MP 165.2",
-        "provider": "Virtual Railfan",
-        "embed_url": "https://www.youtube.com/embed/qQ1j0l9Z-wM?autoplay=1"
+        "provider": "City of Fullerton / Caltrans",
+        "stream_url": "https://quickmap.dot.ca.gov",
+        "embed_url": ""
       }
     },
     {
@@ -92,9 +100,11 @@
         "name": "Flagstaff Historic Depot",
         "location": "Flagstaff, AZ",
         "route": "Southwest Chief",
+        "subdivision": "BNSF Seligman Sub",
         "milepost": "MP 344.0",
-        "provider": "Virtual Railfan",
-        "embed_url": "https://www.youtube.com/embed/F9jW7q1Z8m0?autoplay=1"
+        "provider": "City of Flagstaff / ADOT",
+        "stream_url": "https://www.flagstaffarizona.org",
+        "embed_url": ""
       }
     },
     {
@@ -108,12 +118,14 @@
       },
       "properties": {
         "cam_id": "cam_galesburg_depot",
-        "name": "Galesburg Depot",
+        "name": "Galesburg Railroad Museum Depot",
         "location": "Galesburg, IL",
         "route": "California Zephyr / Southwest Chief / Carl Sandburg",
+        "subdivision": "BNSF Chillicothe / Mendota Sub",
         "milepost": "MP 162.0",
-        "provider": "Virtual Railfan",
-        "embed_url": "https://www.youtube.com/embed/Jk7P0mX-L4w?autoplay=1"
+        "provider": "Galesburg Railroad Museum",
+        "stream_url": "https://www.galesburgrailroadmuseum.org",
+        "embed_url": ""
       }
     },
     {
@@ -130,9 +142,11 @@
         "name": "Perryville MARC / Northeast Corridor",
         "location": "Perryville, MD",
         "route": "Northeast Regional / Acela",
+        "subdivision": "Amtrak Mid-Atlantic Division",
         "milepost": "MP 60.1",
-        "provider": "Virtual Railfan",
-        "embed_url": "https://www.youtube.com/embed/Pz7M9kQ2L1o?autoplay=1"
+        "provider": "MDOT SHA / Maryland Transit",
+        "stream_url": "https://chart.maryland.gov",
+        "embed_url": ""
       }
     }
   ]

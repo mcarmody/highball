@@ -25,7 +25,7 @@ Highball's Phase 1 prototype validates real-time spatial correlation using Amtra
 - **Protocol:** REST + Server-Sent Events (`Accept: text/event-stream`).
 - **Data Attributes:** Lat/lon, bearing, current stop sequence, status, occupancy, multi-car train IDs.
 - **Access:** Open / unauthenticated rate limit (20 req/min), free API key expands to 1,000 req/min.
-- **Cam Intercepts:** Overlaps with Virtual Railfan's Palmer and Northeast Corridor webcams.
+- **Cam Intercepts:** Overlaps with trackside feeds along the Palmer and Northeast Corridor rail lines.
 
 ### C. 511 SF Bay Area Open Data API (Caltrain & BART)
 - **URL:** `https://api.511.org/transit/vehiclepositions?api_key=...&agency=CT` (Caltrain).

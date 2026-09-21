@@ -82,8 +82,13 @@ MAJOR_CORRIDORS: List[Dict[str, Any]] = [
 ]
 
 
-def generate_corridors_geojson(out_path: str = "/workspace/scratch/highball/corridors.geojson") -> Dict[str, Any]:
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def generate_corridors_geojson(out_path: Optional[str] = None) -> Dict[str, Any]:
     """Generates GeoJSON FeatureCollection with LineString features for rail corridors."""
+    if out_path is None:
+        out_path = str(BASE_DIR / "corridors.geojson")
     features = []
     for corr in MAJOR_CORRIDORS:
         features.append({
