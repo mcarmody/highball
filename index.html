@@ -215,7 +215,14 @@
     }
 
     function createTrainIcon(heading, speed) {
-      const rot = heading || 0;
+      // fa-location-arrow's glyph rests pointing ~45deg clockwise of
+      // straight up (measured visually, not the documented icon center),
+      // not true north — rotate(heading) alone left every arrow visibly
+      // off from the train's actual direction of travel. Correct for the
+      // icon's own rest angle so rotate(0) heading (due north) renders
+      // as pointing straight up on the map.
+      const ICON_REST_OFFSET_DEG = 45;
+      const rot = (heading || 0) - ICON_REST_OFFSET_DEG;
       const isFast = speed >= 60;
       const colorClass = isFast ? 'bg-indigo-500 border-indigo-300' : 'bg-sky-600 border-sky-400';
       return L.divIcon({
