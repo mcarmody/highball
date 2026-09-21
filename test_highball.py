@@ -139,4 +139,38 @@ def test_corridors_endpoint(client):
     assert len(nec["geometry"]["coordinates"]) >= 5
 
 
+def test_auto_director_logic():
+    from auto_director import select_director_camera, score_encounter
+    from cam_lookup import PUBLIC_RAIL_CAMS
+
+    imminent_event = {
+        "train": {"train_num": "4", "route": "Southwest Chief", "speed_mph": 60.0},
+        "camera": PUBLIC_RAIL_CAMS[4],  # Flagstaff
+        "distance_miles": 1.5,
+        "trajectory": "approaching",
+        "eta_minutes": 1.5,
+    }
+    score = score_encounter(imminent_event)
+    assert score > 200.0
+
+    decision = select_director_camera([imminent_event])
+    assert decision["mode"] == "intercept"
+    assert decision["camera"]["cam_id"] == "cam_flagstaff_depot"
+
+    # Quiet window falls back to scenic patrol
+    empty_decision = select_director_camera([])
+    assert empty_decision["mode"] == "scenic_patrol"
+    assert "camera" in empty_decision
+
+
+def test_director_endpoint(client):
+    resp = client.get("/api/director")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "mode" in data
+    assert "camera" in data
+    assert "reason" in data
+
+
+
 

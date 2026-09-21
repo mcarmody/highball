@@ -244,6 +244,16 @@ async def get_proximity_events(
     }
 
 
+@app.get("/api/director")
+async def get_director():
+    """Returns Auto-Director's recommended camera to watch right now based on active encounters."""
+    prox = await get_proximity_events(max_miles=15.0)
+    events = prox.get("events", [])
+    from auto_director import select_director_camera
+    return select_director_camera(events)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("server:app", host="0.0.0.0", port=8001, reload=False)
+
