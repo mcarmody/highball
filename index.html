@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   html, body, #map { height: 100%; margin: 0; background: #0b0f14; }
+  /* Free OSM tiles inverted+hue-rotated to a dark theme — no API key needed.
+     (Swapped in after CARTO's dark_all tiles started requiring a key.) */
+  .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9); }
   body { font-family: -apple-system, system-ui, sans-serif; color: #cbd5e1; }
   .leaflet-popup-content-wrapper { background: #111827; color: #e5e7eb; }
   .leaflet-popup-tip { background: #111827; }
@@ -33,12 +36,19 @@
 <script>
   const map = L.map('map', { zoomControl: true }).setView([39.5, -98.35], 4);
 
-  // Dark basemap (CARTO dark_all, free tier, no key)
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
+  // Standard OSM tiles, no key required, ever. Dark look comes from the
+  // CSS filter above rather than a hosted dark tile style — CARTO's
+  // dark_all tiles now require an API key and were showing a watermark.
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
     maxZoom: 19
   }).addTo(map);
+
+  // Markers live outside .leaflet-tile-pane, so counter-invert them back
+  // to normal color so the CSS filter above doesn't also invert the dots.
+  const style = document.createElement('style');
+  style.textContent = '.leaflet-marker-pane, .leaflet-overlay-pane { filter: invert(1) hue-rotate(180deg); }';
+  document.head.appendChild(style);
 
   let markers = L.layerGroup().addTo(map);
 
