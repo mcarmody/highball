@@ -144,15 +144,46 @@
       </div>
       <div class="aspect-video w-full bg-black relative flex items-center justify-center">
         <iframe id="modal-iframe" class="w-full h-full border-0 hidden" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-        <div id="modal-no-stream" class="flex flex-col items-center justify-center p-8 text-center text-slate-400">
-          <i class="fa-solid fa-satellite-dish text-3xl text-indigo-400 mb-2"></i>
-          <p class="font-medium text-slate-200">Trackside Feed Vetting in Progress</p>
-          <p class="text-xs text-slate-500 mt-1 max-w-sm">Direct video stream embedding is pending state DOT / municipal open stream vetting. Spatial telemetry, proximity alerts, and trajectory math remain fully operational.</p>
+        <div id="modal-no-stream" class="flex flex-col items-center justify-center p-6 sm:p-8 text-center text-slate-300 w-full h-full bg-gradient-to-b from-slate-950/80 to-slate-900/90 relative overflow-hidden">
+          <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-950/20 via-transparent to-transparent pointer-events-none"></div>
+
+          <div class="inline-flex items-center space-x-2 px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700/60 mb-3 text-[11px]">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="font-semibold tracking-wider text-slate-200 uppercase font-mono text-[10px]">Trackside 4K Live Broadcast</span>
+            <span class="text-slate-500">·</span>
+            <span class="text-slate-400 font-mono text-[10px]" id="modal-stream-provider-pill">Host Syndication</span>
+          </div>
+
+          <i class="fa-solid fa-tower-broadcast text-3xl sm:text-4xl text-indigo-400 mb-3 drop-shadow-md"></i>
+
+          <h3 class="text-base sm:text-lg font-semibold text-slate-100 mb-1">Primary Trackside Feed & Scanner Active</h3>
+          <p class="text-xs text-slate-400 max-w-md mb-5 leading-relaxed">
+            Multi-angle trackside 4K broadcast with live road-channel radio scanner. Syndicated via official host with embedding restricted by operator terms of service.
+          </p>
+
+          <div class="flex items-center space-x-3 z-10">
+            <a id="modal-stream-btn" href="#" target="_blank" rel="noopener noreferrer" class="inline-flex items-center space-x-2 px-5 py-2.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-lg shadow-indigo-600/25 transition transform hover:-translate-y-0.5">
+              <i class="fa-solid fa-arrow-up-right-from-square text-[11px]"></i>
+              <span>Watch Live on <span id="modal-stream-provider-name">Provider</span></span>
+            </a>
+          </div>
+
+          <div class="mt-4 flex items-center space-x-3 text-[10px] text-slate-500 font-mono">
+            <span class="flex items-center space-x-1"><i class="fa-solid fa-radar text-emerald-400"></i><span>Radar Tracking Active</span></span>
+            <span>·</span>
+            <span class="flex items-center space-x-1"><i class="fa-solid fa-clock-rotate-left text-indigo-400"></i><span>Flybys Logged</span></span>
+          </div>
         </div>
       </div>
       <div class="p-3 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
         <div id="modal-cam-details">Provider: Trackside Feed · Telemetry Active</div>
-        <button onclick="closeCamModal()" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs">Close</button>
+        <div class="flex items-center space-x-2">
+          <a id="modal-external-link" href="#" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-indigo-200 border border-slate-700/80 text-xs inline-flex items-center space-x-1 transition">
+            <span>External Stream</span>
+            <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+          </a>
+          <button onclick="closeCamModal()" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs">Close</button>
+        </div>
       </div>
     </div>
   </div>
@@ -272,6 +303,12 @@
           const props = cam.properties;
           const marker = L.marker([coords[1], coords[0]], { icon: createCamIcon() });
           
+          const safeName = (props.name || '').replace(/'/g, "\\'");
+          const safeLoc = (props.location || '').replace(/'/g, "\\'");
+          const safeEmbed = (props.embed_url || '').replace(/'/g, "\\'");
+          const safeProv = (props.provider || '').replace(/'/g, "\\'");
+          const safeStream = (props.stream_url || '').replace(/'/g, "\\'");
+
           const popupHtml = `
             <div class="p-2.5 space-y-1.5 text-xs min-w-[210px]">
               <div class="font-bold text-slate-100 flex items-center justify-between">
@@ -282,7 +319,7 @@
               <div class="text-slate-400 text-[11px]">Subdivision: <span class="text-slate-200">${props.subdivision || 'Mainline'}</span></div>
               <div class="text-slate-400 text-[11px]">Route: <span class="text-slate-200">${props.route}</span></div>
               <div class="pt-1">
-                <button onclick="openCamModal('${props.name}', '${props.location}', '${props.embed_url}', '${props.provider}')" class="w-full py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1 transition">
+                <button onclick="openCamModal('${safeName}', '${safeLoc}', '${safeEmbed}', '${safeProv}', '${safeStream}')" class="w-full py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1 transition">
                   <i class="fa-solid fa-play text-[10px]"></i>
                   <span>Jump to Live Feed</span>
                 </button>
@@ -482,7 +519,7 @@
               <span>Speed: <span class="font-mono text-slate-300">${evt.train.speed_mph} mph</span></span>
               ${evt.eta_minutes ? `<span class="font-mono text-emerald-300">ETA: ~${evt.eta_minutes}m</span>` : '<span class="font-mono text-slate-500">Departing</span>'}
             </div>
-            <button onclick="openCamModal('${evt.camera.name}', '${evt.camera.location}', '${evt.camera.embed_url}', '${evt.camera.provider}')" class="w-full py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white text-[11px] font-medium flex items-center justify-center space-x-1.5 transition">
+            <button onclick="openCamModal('${(evt.camera.name || '').replace(/'/g, "\\'")}', '${(evt.camera.location || '').replace(/'/g, "\\'")}', '${(evt.camera.embed_url || '').replace(/'/g, "\\'")}', '${(evt.camera.provider || '').replace(/'/g, "\\'")}', '${(evt.camera.stream_url || '').replace(/'/g, "\\'")}')" class="w-full py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white text-[11px] font-medium flex items-center justify-center space-x-1.5 transition">
               <i class="fa-solid fa-tv text-[10px]"></i>
               <span>Jump to Stream</span>
             </button>
@@ -529,17 +566,19 @@
           : `${Math.round(durationSec)}s`;
         const timeStr = evt.start_time_iso ? evt.start_time_iso.substring(11, 19) + ' UTC' : '';
 
-        const cam = camData.find(c => c.cam_id === evt.camera_id) || {
-          name: evt.camera_name || 'Rail Cam',
-          location: evt.location || '',
-          embed_url: `https://www.youtube.com/embed/${evt.camera_id}?autoplay=1`,
-          provider: 'Railfan Stream'
-        };
+        const camFeature = camData.find(c => (c.properties && c.properties.cam_id === evt.camera_id) || c.cam_id === evt.camera_id);
+        const camProps = camFeature ? (camFeature.properties || camFeature) : {};
+        const camName = evt.camera_name || camProps.name || 'Rail Cam';
+        const camLoc = evt.location || camProps.location || '';
+        const embedUrl = evt.embed_url || camProps.embed_url || '';
+        const provider = evt.provider || camProps.provider || 'Trackside Host';
+        const streamUrl = evt.stream_url || camProps.stream_url || '';
 
-        const safeCamName = (cam.name || '').replace(/'/g, "\\'");
-        const safeCamLoc = (cam.location || '').replace(/'/g, "\\'");
-        const safeEmbedUrl = (cam.embed_url || '').replace(/'/g, "\\'");
-        const safeProvider = (cam.provider || '').replace(/'/g, "\\'");
+        const safeCamName = camName.replace(/'/g, "\\'");
+        const safeCamLoc = camLoc.replace(/'/g, "\\'");
+        const safeEmbedUrl = embedUrl.replace(/'/g, "\\'");
+        const safeProvider = provider.replace(/'/g, "\\'");
+        const safeStreamUrl = streamUrl.replace(/'/g, "\\'");
 
         return `
           <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-slate-700 transition flex flex-col space-y-2">
@@ -566,7 +605,7 @@
             </div>
             <div class="flex items-center justify-between text-[10px] text-slate-500">
               <span>Time: <span class="font-mono text-slate-400">${timeStr}</span></span>
-              <button onclick="openCamModal('${safeCamName}', '${safeCamLoc}', '${safeEmbedUrl}', '${safeProvider}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] flex items-center space-x-1 transition">
+              <button onclick="openCamModal('${safeCamName}', '${safeCamLoc}', '${safeEmbedUrl}', '${safeProvider}', '${safeStreamUrl}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] flex items-center space-x-1 transition">
                 <i class="fa-solid fa-video text-[9px]"></i>
                 <span>Cam</span>
               </button>
@@ -602,12 +641,26 @@
       }
     }
 
-    function openCamModal(name, loc, embedUrl, provider) {
-      document.getElementById('modal-cam-title').innerText = name;
-      document.getElementById('modal-cam-loc').innerText = `· ${loc}`;
-      document.getElementById('modal-cam-details').innerText = `Provider: ${provider} · Telemetry Active`;
+    function openCamModal(name, loc, embedUrl, provider, streamUrl) {
+      document.getElementById('modal-cam-title').innerText = name || 'Railfan Live Cam';
+      document.getElementById('modal-cam-loc').innerText = loc ? `· ${loc}` : '';
+      const prov = provider || 'Trackside Feed';
+      document.getElementById('modal-cam-details').innerText = `Provider: ${prov} · Telemetry Active`;
+
       const iframe = document.getElementById('modal-iframe');
       const noStream = document.getElementById('modal-no-stream');
+      const streamBtn = document.getElementById('modal-stream-btn');
+      const providerName = document.getElementById('modal-stream-provider-name');
+      const providerPill = document.getElementById('modal-stream-provider-pill');
+      const externalLink = document.getElementById('modal-external-link');
+
+      if (providerName) providerName.innerText = prov;
+      if (providerPill) providerPill.innerText = prov;
+
+      const targetUrl = (streamUrl && streamUrl !== '' && streamUrl !== 'undefined') ? streamUrl : ((embedUrl && embedUrl !== '' && embedUrl !== 'undefined') ? embedUrl : '#');
+      if (streamBtn) streamBtn.href = targetUrl;
+      if (externalLink) externalLink.href = targetUrl;
+
       if (embedUrl && embedUrl !== '' && embedUrl !== 'undefined') {
         iframe.src = embedUrl;
         iframe.classList.remove('hidden');
