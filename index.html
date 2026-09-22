@@ -221,13 +221,26 @@
       // off from the train's actual direction of travel. Correct for the
       // icon's own rest angle so rotate(0) heading (due north) renders
       // as pointing straight up on the map.
-      const ICON_REST_OFFSET_DEG = 45;
-      // Guard against a non-numeric heading (a compass string like "NW"
-      // slipping through from some future agency's feed) producing
-      // rotate(NaNdeg) — that exact bug hit every Amtrak train in
-      // production 2026-09-21 before the server-side fix in server.py.
-      const numericHeading = Number(heading);
-      const rot = (Number.isFinite(numericHeading) ? numericHeading : 0) - ICON_REST_OFFSET_DEG;
+      // Convert compass strings ('S', 'NE', etc.) or numeric degrees to true heading
+      const CARDINAL_MAP = {
+        'N': 0, 'NNE': 22.5, 'NE': 45, 'ENE': 67.5,
+        'E': 90, 'ESE': 112.5, 'SE': 135, 'SSE': 157.5,
+        'S': 180, 'SSW': 202.5, 'SW': 225, 'WSW': 247.5,
+        'W': 270, 'WNW': 292.5, 'NW': 315, 'NNW': 337.5
+      };
+      let deg = 0;
+      if (typeof heading === 'number' && Number.isFinite(heading)) {
+        deg = heading;
+      } else if (typeof heading === 'string') {
+        const clean = heading.trim().toUpperCase();
+        if (CARDINAL_MAP.hasOwnProperty(clean)) {
+          deg = CARDINAL_MAP[clean];
+        } else {
+          const parsed = parseFloat(clean);
+          deg = Number.isFinite(parsed) ? parsed : 0;
+        }
+      }
+      const rot = deg - ICON_REST_OFFSET_DEG;
       const isFast = speed >= 60;
       const colorClass = isFast ? 'bg-indigo-500 border-indigo-300' : 'bg-sky-600 border-sky-400';
       return L.divIcon({
