@@ -55,10 +55,10 @@
 
     <!-- Live Telemetry Stats -->
     <div class="hidden md:flex items-center space-x-6 text-xs text-slate-400">
-      <div>Active Trains: <span class="font-mono font-medium text-slate-200" id="stat-trains">Polling...</span></div>
-      <div>Rail Cams: <span class="font-mono font-medium text-slate-200" id="stat-cams">7 Registered</span></div>
+      <div>Active Transit: <span class="font-mono font-medium text-slate-200" id="stat-trains">Polling...</span></div>
+      <div>Rail Cams: <span class="font-mono font-medium text-slate-200" id="stat-cams">10 Registered</span></div>
       <div>Active Encounters: <span class="font-mono font-medium text-amber-400" id="stat-encounters">0</span></div>
-      <div>Telemetry: <span class="font-mono font-medium text-emerald-400">Amtraker v3 (15s TTL)</span></div>
+      <div>Telemetry: <span class="font-mono font-medium text-emerald-400">Multi-Agency + ADS-B</span></div>
     </div>
 
     <!-- Quick Action / Status Pill -->
@@ -116,6 +116,7 @@
       <button onclick="filterTrains('subway')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="subway"><i class="fa-solid fa-train-subway text-[10px] mr-1 text-emerald-400"></i>Subway / Metro</button>
       <button onclick="filterTrains('commuter')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="commuter">Commuter</button>
       <button onclick="filterTrains('bus')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="bus"><i class="fa-solid fa-bus text-[10px] mr-1 text-rose-400"></i>Bus</button>
+      <button onclick="filterTrains('flight')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="flight"><i class="fa-solid fa-plane text-[10px] mr-1 text-cyan-400"></i>Flights</button>
       <button onclick="filterTrains('approaching')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="approaching">Closing In (&lt;15 mi)</button>
       <button onclick="filterTrains('highspeed')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="highspeed">Fast (&gt;60 mph)</button>
       <button id="trail-btn" onclick="toggleBreadcrumbs()" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" title="Toggle historical GPS breadcrumb trails">Trails: <span id="trail-status" class="text-emerald-400 font-semibold">ON</span></button>
@@ -442,13 +443,16 @@
         colorClass = 'bg-indigo-600 border-indigo-400 shadow-indigo-950/60';
       } else if (mode === 'bus') {
         colorClass = 'bg-rose-600 border-rose-400 shadow-rose-950/60';
+      } else if (mode === 'flight') {
+        colorClass = 'bg-cyan-600 border-cyan-300 shadow-cyan-950/60';
       }
+      const iconGlyph = mode === 'flight' ? '<i class="fa-solid fa-plane text-[9px]"></i>' : '<i class="fa-solid fa-location-arrow text-[9px]"></i>';
       return L.divIcon({
         className: 'train-marker',
         html: `
           <div class="flex items-center justify-center w-6 h-6">
             <div class="w-5 h-5 rounded-full ${colorClass} border flex items-center justify-center text-white shadow-md transform" style="transform: rotate(${rot}deg)">
-              <i class="fa-solid fa-location-arrow text-[9px]"></i>
+              ${iconGlyph}
             </div>
           </div>
         `,
@@ -927,6 +931,9 @@
         if (currentFilter === 'bus' && props.mode !== 'bus') {
           return;
         }
+        if (currentFilter === 'flight' && props.mode !== 'flight') {
+          return;
+        }
 
         // Historical GPS Breadcrumb Trails
         const bKey = props.id || props.train_num;
@@ -936,6 +943,8 @@
           let defaultColor = isFast ? '#818cf8' : '#38bdf8';
           if (props.mode === 'subway') defaultColor = '#34d399';
           else if (props.mode === 'light_rail') defaultColor = '#fbbf24';
+          else if (props.mode === 'bus') defaultColor = '#f43f5e';
+          else if (props.mode === 'flight') defaultColor = '#06b6d4';
           const line = L.polyline(latlngs, {
             color: defaultColor,
             weight: 2.5,
@@ -958,8 +967,9 @@
           resetRouteHighlight();
         });
 
+        const isFlight = props.mode === 'flight';
         const modeBadgeHtml = props.mode_label
-          ? `<span class="px-1.5 py-0.5 rounded ${props.mode === 'subway' ? 'bg-emerald-500/20 text-emerald-300' : (props.mode === 'light_rail' ? 'bg-amber-500/20 text-amber-300' : (props.mode === 'bus' ? 'bg-rose-500/20 text-rose-300' : 'bg-sky-500/20 text-sky-300'))} text-[10px] font-medium">${props.mode_label}</span>`
+          ? `<span class="px-1.5 py-0.5 rounded ${props.mode === 'subway' ? 'bg-emerald-500/20 text-emerald-300' : (props.mode === 'light_rail' ? 'bg-amber-500/20 text-amber-300' : (props.mode === 'bus' ? 'bg-rose-500/20 text-rose-300' : (isFlight ? 'bg-cyan-500/20 text-cyan-300' : 'bg-sky-500/20 text-sky-300')))} text-[10px] font-medium">${props.mode_label}</span>`
           : '';
 
         const nextStopHtml = props.next_station 
@@ -970,17 +980,23 @@
           ? `<div class="text-slate-400 text-[11px]">Status: <span class="text-emerald-400 font-medium">${props.timely}</span></div>` 
           : '';
 
+        const numLabel = props.mode === 'subway' ? 'Car #' : (props.mode === 'bus' ? 'Bus #' : (isFlight ? 'Flight ' : 'Train #'));
+        const altitudeHtml = isFlight && props.altitude_ft 
+          ? `<div class="text-slate-400 text-[11px]">Altitude: <span class="font-mono text-cyan-300 font-medium">${props.altitude_ft.toLocaleString()} ft</span></div>` 
+          : '';
+
         const popupHtml = `
           <div class="p-2 space-y-1 text-xs min-w-[210px]">
             <div class="flex items-center justify-between border-b border-slate-700/60 pb-1">
               <div class="flex items-center space-x-1.5">
-                <span class="font-bold text-slate-100">${props.mode === 'subway' ? 'Car #' : (props.mode === 'bus' ? 'Bus #' : 'Train #')}${props.train_num}</span>
+                <span class="font-bold text-slate-100">${numLabel}${props.train_num}</span>
                 ${modeBadgeHtml}
               </div>
-              <span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px]">${props.speed_mph} mph</span>
+              <span class="px-1.5 py-0.5 rounded ${isFlight ? 'bg-cyan-500/20 text-cyan-300' : 'bg-indigo-500/20 text-indigo-300'} font-mono text-[10px]">${props.speed_mph} mph</span>
             </div>
             <div class="text-slate-300 font-medium">${props.route}</div>
             <div class="text-slate-400 text-[11px]">${props.origin} &rarr; ${props.dest}</div>
+            ${altitudeHtml}
             ${nextStopHtml}
             ${timelyHtml}
             <div class="text-slate-400 text-[11px]">Heading: <span class="font-mono text-slate-200">${props.heading}&deg;</span></div>

@@ -31,6 +31,7 @@ from cam_lookup import (
 )
 from encounter_tracker import EncounterTracker
 from gtfs_rt_parser import parse_gtfs_rt_vehicle_positions, parse_mbta_v3_vehicles
+from opensky_parser import parse_opensky_states
 
 BASE_DIR = Path(__file__).parent
 INDEX_HTML = BASE_DIR / "index.html"
@@ -243,20 +244,56 @@ def _fetch_sound_transit() -> List[Dict[str, Any]]:
     return []
 
 
+_flight_cache: Dict[str, Any] = {
+    "timestamp": 0.0,
+    "features": [],
+}
+FLIGHT_CACHE_TTL_SECONDS = 20.0  # OpenSky anonymous tier cache guard (~400 requests/day)
+
+
+def _fetch_flights() -> List[Dict[str, Any]]:
+    """Fetches live North American airspace flights from OpenSky Network ADS-B feed."""
+    now = time.time()
+    if _flight_cache["features"] and (now - _flight_cache["timestamp"] < FLIGHT_CACHE_TTL_SECONDS):
+        return _flight_cache["features"]
+
+    # US continental bounding box (lat 24.39 to 49.38, lon -125.0 to -66.93)
+    url = (
+        "https://opensky-network.org/api/states/all?"
+        "lamin=24.396308&lomin=-125.0&lamax=49.384358&lomax=-66.93457"
+    )
+    try:
+        resp = requests.get(url, headers={"User-Agent": "HighballTransitTracker/1.0"}, timeout=4.0)
+        if resp.status_code == 200:
+            parsed = parse_opensky_states(resp.json())
+            features = parsed.get("features", [])
+            _flight_cache["timestamp"] = now
+            _flight_cache["features"] = features
+            return features
+        elif resp.status_code == 429:
+            print("[Highball] OpenSky 429 rate limit hit, returning cached flights")
+            return _flight_cache["features"]
+    except Exception as exc:
+        print(f"[Highball] OpenSky flight fetch warning: {exc}")
+
+    return _flight_cache["features"]
+
+
 def fetch_live_train_geojson() -> Dict[str, Any]:
-    """Fetches live multi-agency transit concurrently (Amtrak, MBTA Subway/Rail, Caltrain, Metra, Sound Transit)."""
+    """Fetches live multi-agency transit concurrently (Amtrak, MBTA Subway/Rail, Caltrain, Metra, Sound Transit, OpenSky Flights)."""
     now = time.time()
     if _train_cache["geojson"] and (now - _train_cache["timestamp"] < CACHE_TTL_SECONDS):
         return _train_cache["geojson"]
 
     features = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
         futures = [
             executor.submit(_fetch_amtrak),
             executor.submit(_fetch_mbta),
             executor.submit(_fetch_caltrain),
             executor.submit(_fetch_metra),
             executor.submit(_fetch_sound_transit),
+            executor.submit(_fetch_flights),
         ]
         for fut in concurrent.futures.as_completed(futures):
             try:
@@ -375,6 +412,18 @@ async def get_trains(
     }
 
 
+@app.get("/api/flights")
+async def get_flights():
+    """Returns live GeoJSON FeatureCollection of active North American flights via OpenSky Network."""
+    flights = _fetch_flights()
+    return {
+        "type": "FeatureCollection",
+        "timestamp": _flight_cache["timestamp"] or time.time(),
+        "total_active": len(flights),
+        "agency": "OpenSky Network",
+        "features": flights,
+    }
+
 
 @app.get("/api/proximity")
 async def get_proximity_events(
@@ -386,9 +435,13 @@ async def get_proximity_events(
     proximity_matches = []
 
     for feature in trains_geo.get("features", []):
+        props = feature["properties"]
+        # Railcams track ground rail corridors; skip flights passing overhead
+        if props.get("mode") == "flight":
+            continue
+
         coords = feature["geometry"]["coordinates"]
         lon, lat = coords[0], coords[1]
-        props = feature["properties"]
 
         for cam in PUBLIC_RAIL_CAMS:
             dist = haversine_miles(lat, lon, cam["lat"], cam["lon"])

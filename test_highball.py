@@ -528,6 +528,178 @@ def test_mbta_subway_and_light_rail_parsing():
     assert features_by_id["MBTA_105"]["mode_label"] == "Commuter Rail"
 
 
+def test_opensky_flight_parsing():
+    """Verify parse_opensky_states normalizes ADS-B state vectors into GeoJSON flight features."""
+    from opensky_parser import parse_opensky_states
+
+    sample_payload = {
+        "time": 1790052570,
+        "states": [
+            [
+                "a39be7",
+                "JBU955  ",
+                "United States",
+                1790052569,
+                1790052570,
+                -76.5801,
+                39.2545,
+                3604.26,  # ~11,825 ft
+                False,     # airborne
+                175.0,    # ~391 mph
+                195.34,   # heading
+                2.5,      # ~492 fpm climb
+                None,
+                3749.04,
+                "1131",
+                False,
+                0,
+            ],
+            [
+                "a53eef",
+                "UPS895  ",
+                "United States",
+                1790052569,
+                1790052569,
+                -91.7672,
+                38.3176,
+                11894.82, # ~39,025 ft (FL390)
+                False,
+                268.0,    # ~600 mph
+                89.5,
+                0.0,      # cruising
+                None,
+                12367.26,
+                "1757",
+                False,
+                0,
+            ],
+            [
+                "a00001",
+                "N12345  ",
+                "United States",
+                1790052569,
+                1790052569,
+                -97.0000,
+                32.0000,
+                150.0,
+                True,     # on ground
+                5.0,
+                0.0,
+                0.0,
+                None,
+                150.0,
+                "1200",
+                False,
+                0,
+            ]
+        ]
+    }
+    result = parse_opensky_states(sample_payload)
+    assert result["type"] == "FeatureCollection"
+    assert result["total_active"] == 3
+    features = result["features"]
+
+    # JetBlue Flight 955
+    jb = features[0]["properties"]
+    assert jb["flight_num"] == "JBU955"
+    assert jb["agency"] == "JetBlue"
+    assert jb["mode"] == "flight"
+    assert jb["mode_label"] == "Flight"
+    assert 11800 <= jb["altitude_ft"] <= 11900
+    assert 390 <= jb["speed_mph"] <= 393
+    assert jb["heading"] == 195.3
+    assert "Climbing" in jb["status"]
+    assert jb["on_ground"] is False
+
+    # UPS 895 (Cruising at FL390)
+    ups = features[1]["properties"]
+    assert ups["flight_num"] == "UPS895"
+    assert ups["agency"] == "UPS Airlines"
+    assert "FL390" in ups["route"]
+    assert ups["status"] == "Cruising"
+
+    # N12345 (General Aviation on ground)
+    ga = features[2]["properties"]
+    assert ga["agency"] == "General Aviation (US)"
+    assert ga["status"] == "Taxiing / Ground"
+    assert ga["on_ground"] is True
+
+
+def test_api_flights_endpoint(client, monkeypatch):
+    """Verify /api/flights returns GeoJSON FeatureCollection of parsed aircraft."""
+    dummy_flights = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-76.58, 39.25]},
+            "properties": {
+                "id": "Flight_a39be7",
+                "train_num": "JBU955",
+                "flight_num": "JBU955",
+                "agency": "JetBlue",
+                "mode": "flight",
+                "mode_label": "Flight",
+                "speed_mph": 391.0,
+                "altitude_ft": 11825,
+            }
+        }
+    ]
+    monkeypatch.setattr("server._fetch_flights", lambda: dummy_flights)
+
+    resp = client.get("/api/flights")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "FeatureCollection"
+    assert data["total_active"] == 1
+    assert data["features"][0]["properties"]["mode"] == "flight"
+
+
+def test_proximity_skips_overhead_flights(client, monkeypatch):
+    """Verify railcam proximity engine excludes airborne flights directly overhead."""
+    dummy_geojson = {
+        "type": "FeatureCollection",
+        "timestamp": 1726913800,
+        "total_active": 1,
+        "features": [
+            {
+                "type": "Feature",
+                # Directly over Fullerton railcam (lat: 33.8687, lon: -117.9228)
+                "geometry": {"type": "Point", "coordinates": [-117.9228, 33.8687]},
+                "properties": {
+                    "id": "Flight_overhead",
+                    "train_num": "DAL100",
+                    "route": "Delta · FL350",
+                    "agency": "Delta Air Lines",
+                    "mode": "flight",
+                    "mode_label": "Flight",
+                    "speed_mph": 520.0,
+                    "heading": 90.0,
+                    "altitude_ft": 35000,
+                }
+            }
+        ]
+    }
+    monkeypatch.setattr("server.fetch_live_train_geojson", lambda: dummy_geojson)
+
+    resp = client.get("/api/proximity?max_miles=15.0")
+    assert resp.status_code == 200
+    data = resp.json()
+    # Should not produce proximity alerts for airborne flights passing over trackside cams
+    assert data["total_matches"] == 0
+    assert len(data["events"]) == 0
+
+
+def test_index_html_flight_invariants():
+    """Verify index.html includes flight toggle button, fa-plane glyph, and altitude HUD."""
+    from server import INDEX_HTML
+    assert INDEX_HTML.exists()
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert 'data-filter="flight"' in html
+    assert "fa-plane" in html
+    assert "Altitude:" in html
+
+
+
 
 
 
