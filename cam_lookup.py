@@ -36,9 +36,17 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 351.6",
         "lat": 35.2008,
         "lon": -118.5367,
-        "provider": "Tehachapi Live Railcam",
+        "provider": "Tehachapi Live Train Cams",
         "stream_url": "https://tehachapilivecam.com",
-        "embed_url": "",
+        # Verified live 2026-09-21: real primary-source YouTube channel
+        # (@TehachapiLiveTrainCam, confirmed via oembed author_name/author_url,
+        # NOT a Virtual Railfan rebroadcast), embedding confirmed allowed.
+        # The other six cams in this list are still unwired — most of the
+        # obvious search hits for them (Rochelle, Horseshoe Curve) turned
+        # out to be Virtual Railfan or an unverified third-party rebroadcast
+        # of another operator's feed, exactly the ToS problem this list was
+        # built to avoid. Left empty rather than guess.
+        "embed_url": "https://www.youtube.com/embed/COO-fe-r0nw",
     },
     {
         "cam_id": "cam_rochelle_diamond",

@@ -39,9 +39,9 @@
         "route": "San Joaquins (Bus/Freight Interconnect)",
         "subdivision": "UP Mojave Sub",
         "milepost": "MP 351.6",
-        "provider": "Tehachapi Live Railcam",
+        "provider": "Tehachapi Live Train Cams",
         "stream_url": "https://tehachapilivecam.com",
-        "embed_url": ""
+        "embed_url": "https://www.youtube.com/embed/COO-fe-r0nw"
       }
     },
     {
