@@ -36,6 +36,7 @@ from encounter_tracker import EncounterTracker
 from gtfs_rt_parser import parse_gtfs_rt_vehicle_positions, parse_mbta_v3_vehicles
 from opensky_parser import parse_opensky_states
 from consist_detector import synthesize_consist_for_train, generate_defect_report
+from stream_vision import stream_vision_engine
 
 BASE_DIR = Path(__file__).parent
 INDEX_HTML = BASE_DIR / "index.html"
@@ -448,6 +449,7 @@ async def root():
 async def health():
     """System health check and tracking statistics."""
     train_count = len(_train_cache["geojson"]["features"]) if _train_cache["geojson"] else 0
+    stream_sum = stream_vision_engine.ingest.get_summary()
     return {
         "status": "online",
         "service": "highball-spatial-engine",
@@ -455,6 +457,8 @@ async def health():
         "cached_trains": train_count,
         "cache_age_sec": round(time.time() - _train_cache["timestamp"], 1) if _train_cache["timestamp"] else None,
         "active_sse_subscribers": len(subscribers),
+        "active_hls_streams": stream_sum.get("active_streams", 0),
+        "vision_detections_logged": stream_vision_engine.detector.total_detections_logged,
     }
 
 
@@ -725,6 +729,11 @@ async def get_proximity_events(
 
     proximity_matches.sort(key=lambda x: x["distance_miles"])
     encounter_changes = encounter_tracker.update(proximity_matches)
+    # Trigger trackside computer vision detection passes for trains in camera visual cones (< 2.5 miles)
+    vision_detections = stream_vision_engine.process_proximity_detections(
+        proximity_matches,
+        broadcast_callback=broadcast_sse_sync,
+    )
     if proximity_matches:
         broadcast_sse_sync("proximity", {
             "timestamp": time.time(),
@@ -946,6 +955,103 @@ async def get_defect_detector_report(cam_id: str):
         "detector_report": defect_rep,
         "timestamp": time.time(),
     }
+
+
+@app.get("/api/streams")
+async def list_all_streams():
+    """Returns status and HLS manifest details for all registered trackside camera video feeds."""
+    streams = stream_vision_engine.ingest.get_all_streams()
+    summary = stream_vision_engine.ingest.get_summary()
+    return {
+        "summary": summary,
+        "total_streams": len(streams),
+        "streams": streams,
+        "timestamp": time.time(),
+    }
+
+
+@app.get("/api/streams/{cam_id}")
+async def get_stream_details(cam_id: str):
+    """Retrieve HLS manifest URL, stream health, resolution, and probe status for a specific camera."""
+    stream_info = stream_vision_engine.ingest.get_stream(cam_id)
+    if not stream_info:
+        raise HTTPException(status_code=404, detail=f"Trackside stream '{cam_id}' not found.")
+    return stream_info
+
+
+@app.post("/api/streams/{cam_id}/probe")
+async def probe_camera_stream(cam_id: str, force: bool = Query(False, description="Force HLS token refresh")):
+    """Forces an immediate health check and manifest token refresh for a trackside camera feed."""
+    try:
+        updated_stream = stream_vision_engine.ingest.probe_stream(cam_id, force_refresh=force)
+        return updated_stream
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Trackside stream '{cam_id}' not found.")
+
+
+@app.get("/api/vision/detections")
+async def get_recent_vision_detections(limit: int = Query(20, ge=1, le=100), cam_id: Optional[str] = None):
+    """Returns recent trackside computer vision detections across all or a specific camera."""
+    detections = stream_vision_engine.detector.get_recent_detections(cam_id=cam_id, limit=limit)
+    metrics = stream_vision_engine.detector.get_metrics()
+    return {
+        "total": len(detections),
+        "metrics": metrics,
+        "detections": detections,
+        "timestamp": time.time(),
+    }
+
+
+@app.get("/api/vision/detections/{cam_id}")
+async def get_camera_vision_detections(cam_id: str, limit: int = Query(20, ge=1, le=100)):
+    """Returns recent trackside computer vision detections logged for a specific camera junction."""
+    if cam_id not in stream_vision_engine.ingest.streams:
+        raise HTTPException(status_code=404, detail=f"Webcam / junction '{cam_id}' not found.")
+    detections = stream_vision_engine.detector.get_recent_detections(cam_id=cam_id, limit=limit)
+    return {
+        "cam_id": cam_id,
+        "total": len(detections),
+        "detections": detections,
+        "timestamp": time.time(),
+    }
+
+
+@app.post("/api/vision/sample")
+async def trigger_vision_sample(cam_id: str = Query(..., description="Camera ID to sample"), train_num: Optional[str] = Query(None, description="Optional train number passing")):
+    """Trigger an on-demand frame detection sample against a trackside video stream."""
+    st = stream_vision_engine.ingest.streams.get(cam_id)
+    if not st:
+        raise HTTPException(status_code=404, detail=f"Webcam / junction '{cam_id}' not found.")
+
+    train_data = None
+    dist = 10.0
+    if train_num:
+        trains_geo = fetch_live_train_geojson()
+        target = train_num.strip().lower()
+        for feat in trains_geo.get("features", []):
+            props = feat.get("properties", {})
+            t_num = str(props.get("train_num") or "").lower()
+            if target in (t_num, str(props.get("id", "")).lower()):
+                train_data = props
+                dist = 1.0
+                break
+        if not train_data:
+            train_data = {"train_num": train_num, "route": "Mainline Service", "agency": "Amtrak", "speed_mph": 50.0}
+            dist = 1.0
+
+    event = stream_vision_engine.detector.sample_camera_frame(
+        stream_target=st,
+        train_data=train_data,
+        distance_miles=dist,
+    )
+    broadcast_sse_sync("vision_detection", event)
+    return event
+
+
+@app.get("/api/vision/metrics")
+async def get_vision_metrics():
+    """Retrieve aggregate telemetry on trackside computer vision detections and frame processing."""
+    return stream_vision_engine.detector.get_metrics()
 
 
 if __name__ == "__main__":

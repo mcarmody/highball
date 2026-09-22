@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 
 from consist_detector import synthesize_consist_for_train, generate_defect_report
+from stream_vision import stream_vision_engine
 
 
 class EncounterTracker:
@@ -46,6 +47,21 @@ class EncounterTracker:
 
             speed = float(train.get("speed_mph", 0.0))
 
+            st = stream_vision_engine.ingest.streams.get(cam_id)
+            hls_url = st.hls_manifest_url if st else ""
+            stream_res = st.resolution if st else "1080p60"
+            hls_status = st.status if st else "active_live"
+
+            # Check trackside computer vision field of view (< 2.5 miles)
+            vision_event = None
+            if dist <= 2.5 and st:
+                vision_event = stream_vision_engine.detector.sample_camera_frame(
+                    st,
+                    train_data=train,
+                    distance_miles=dist,
+                    timestamp=now,
+                )
+
             if key not in self.active_sessions:
                 # Synthesize consist profile & defect detector packet
                 route_str = train.get("route", "Unknown Route")
@@ -64,6 +80,9 @@ class EncounterTracker:
                     "provider": cam.get("provider", "Trackside Host"),
                     "stream_url": cam.get("stream_url", ""),
                     "embed_url": cam.get("embed_url", ""),
+                    "hls_manifest_url": hls_url,
+                    "stream_resolution": stream_res,
+                    "hls_stream_status": hls_status,
                     "start_time": now,
                     "start_time_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
                     "last_seen": now,
@@ -72,6 +91,8 @@ class EncounterTracker:
                     "trajectory_entry": ev.get("trajectory", "unknown"),
                     "consist": consist,
                     "defect_report": defect_rep,
+                    "vision_confirmed": vision_event is not None,
+                    "vision_detection": vision_event,
                     "status": "in_progress",
                 }
                 self.active_sessions[key] = sess
@@ -84,6 +105,9 @@ class EncounterTracker:
                     sess["closest_distance_miles"] = dist
                 if speed > sess["peak_speed_mph"]:
                     sess["peak_speed_mph"] = speed
+                if dist <= 2.5 and st and not sess.get("vision_confirmed"):
+                    sess["vision_confirmed"] = True
+                    sess["vision_detection"] = vision_event
 
         # Finalize sessions that left the proximity zone or timed out (> 5 min unseen)
         completed_keys = []
@@ -147,9 +171,14 @@ class EncounterTracker:
         sorted_cams = sorted(cam_counts.values(), key=lambda c: c["count"], reverse=True)
         top_cam = sorted_cams[0] if sorted_cams else None
 
+        total_vision = sum(1 for s in all_completed if s.get("vision_confirmed"))
+        vision_pct = round(100.0 * total_vision / max(1, total_completed), 1)
+
         return {
             "total_completed": total_completed,
             "active_count": len(self.active_sessions),
+            "total_vision_confirmed": total_vision,
+            "vision_confirmation_rate_pct": vision_pct,
             "peak_speed_mph": fastest.get("peak_speed_mph", 0.0),
             "fastest_train": {
                 "train_num": fastest.get("train_num"),

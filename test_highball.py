@@ -1370,6 +1370,204 @@ def test_index_html_consist_invariants():
     assert "Automated Defect Detector" in html
 
 
+def test_stream_vision_stream_target_probe_and_token_refresh():
+    """Verify StreamTarget generates authenticated HLS manifest and probes latency."""
+    from stream_vision import StreamTarget
+
+    target = StreamTarget(
+        cam_id="cam_test_junction",
+        name="Test Rail Junction",
+        location="Altoona, PA",
+        route="Pennsylvanian",
+        subdivision="Pittsburgh Line",
+        milepost="MP 240.0",
+        provider="Railroaders Museum",
+        stream_url="https://youtube.com/watch?v=test",
+        embed_url="https://youtube-nocookie.com/embed/test",
+        resolution="1080p60",
+        bitrate_kbps=4500,
+        fps=60,
+    )
+
+    assert target.cam_id == "cam_test_junction"
+    assert "manifest.m3u8?token=" in target.hls_manifest_url
+    assert target.status == "active_live"
+    assert target.is_live is True
+
+    probe_result = target.probe()
+    assert probe_result["status"] == "active_live"
+    assert probe_result["last_probe_latency_ms"] > 0
+    assert probe_result["resolution"] == "1080p60"
+
+
+def test_stream_ingest_manager_registry_and_summary():
+    """Verify StreamIngestManager indexes all 10 cameras and provides aggregate summary."""
+    from stream_vision import StreamIngestManager
+    from cam_lookup import PUBLIC_RAIL_CAMS
+
+    manager = StreamIngestManager()
+    assert len(manager.streams) == len(PUBLIC_RAIL_CAMS)
+    assert "cam_horseshoe_curve" in manager.streams
+    assert "cam_tehachapi_loop" in manager.streams
+
+    summary = manager.get_summary()
+    assert summary["total_streams"] == len(PUBLIC_RAIL_CAMS)
+    assert summary["active_streams"] >= 1
+    assert summary["total_bandwidth_kbps"] > 0
+    assert summary["average_latency_ms"] > 0
+
+
+def test_trackside_vision_detector_frame_sampling():
+    """Verify TracksideVisionDetector generates bounding boxes, OCR, and optical flow metrics."""
+    from stream_vision import StreamTarget, TracksideVisionDetector
+
+    detector = TracksideVisionDetector(max_history=50)
+    target = StreamTarget(
+        cam_id="cam_rochelle",
+        name="Rochelle Double Diamond",
+        location="Rochelle, IL",
+        route="BNSF Transcon",
+        subdivision="Chicago Sub",
+        milepost="MP 83.2",
+        provider="City of Rochelle",
+        stream_url="https://youtube.com/watch?v=rochelle",
+        embed_url="https://youtube-nocookie.com/embed/rochelle",
+    )
+
+    # 1. Sample with train in visual cone (< 2.5 miles)
+    train_data = {"train_num": "4", "route": "Southwest Chief", "agency": "Amtrak", "speed_mph": 62.0}
+    event_train = detector.sample_camera_frame(target, train_data=train_data, distance_miles=1.5)
+
+    assert event_train["train_present"] is True
+    assert event_train["scene_classification"] == "TRAIN_IN_FRAME"
+    assert event_train["track_status"] == "OCCUPIED"
+    assert event_train["total_bounding_boxes"] > 0
+    assert event_train["lead_unit"] is not None
+    assert "AMTR" in event_train["lead_cab_number"]
+    assert event_train["optical_speed_estimate_mph"] > 0
+    assert len(detector.history) == 1
+
+    # 2. Sample nominal clear track (> 2.5 miles)
+    event_clear = detector.sample_camera_frame(target, train_data=None, distance_miles=8.0)
+    assert event_clear["train_present"] is False
+    assert event_clear["scene_classification"] == "CLEAR_RIGHT_OF_WAY"
+    assert event_clear["track_status"] == "CLEAR"
+    assert event_clear["total_bounding_boxes"] == 0
+    assert len(detector.history) == 2
+
+
+def test_encounter_tracker_attaches_vision_and_hls():
+    """Verify EncounterTracker binds HLS stream metadata and vision confirmation into sessions."""
+    from encounter_tracker import EncounterTracker
+
+    tracker = EncounterTracker(encounter_radius_miles=5.0)
+    mock_events = [
+        {
+            "train": {"train_num": "42", "route": "Pennsylvanian", "speed_mph": 48.0, "agency": "Amtrak"},
+            "camera": {"cam_id": "cam_horseshoe_curve", "name": "Horseshoe Curve", "location": "Altoona, PA"},
+            "distance_miles": 1.8,
+            "trajectory": "approaching",
+        }
+    ]
+
+    t0 = 1726980000.0
+    changes = tracker.update(mock_events, timestamp=t0)
+    active = tracker.get_active_encounters()
+    assert len(active) == 1
+    session = active[0]
+
+    assert session["train_num"] == "42"
+    assert session["camera_id"] == "cam_horseshoe_curve"
+    assert session["hls_manifest_url"] != ""
+    assert session["vision_confirmed"] is True
+    assert session["vision_detection"] is not None
+    assert session["vision_detection"]["train_present"] is True
+
+    # Check analytics when completed
+    tracker.update([], timestamp=t0 + 120.0)
+    history = tracker.get_recent_history()
+    assert len(history) == 1
+    assert history[0]["vision_confirmed"] is True
+
+    analytics = tracker.get_analytics()
+    assert analytics["total_completed"] == 1
+    assert analytics["total_vision_confirmed"] == 1
+    assert analytics["vision_confirmation_rate_pct"] == 100.0
+
+
+def test_api_streams_endpoints(client):
+    """Verify /api/streams and /api/streams/{cam_id} endpoints."""
+    # List all streams
+    resp = client.get("/api/streams")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "streams" in data
+    assert data["total_streams"] == 10
+    assert "summary" in data
+    assert data["summary"]["total_streams"] == 10
+
+    # Stream detail
+    resp_cam = client.get("/api/streams/cam_horseshoe_curve")
+    assert resp_cam.status_code == 200
+    cam_data = resp_cam.json()
+    assert cam_data["cam_id"] == "cam_horseshoe_curve"
+    assert "manifest.m3u8" in cam_data["hls_manifest_url"]
+    assert cam_data["resolution"] == "1080p60"
+
+    # Probe stream
+    resp_probe = client.post("/api/streams/cam_horseshoe_curve/probe?force=true")
+    assert resp_probe.status_code == 200
+    probe_data = resp_probe.json()
+    assert probe_data["last_probe_latency_ms"] > 0
+
+    # Nonexistent stream 404
+    resp_404 = client.get("/api/streams/nonexistent_fake_cam_99")
+    assert resp_404.status_code == 404
+
+
+def test_api_vision_endpoints(client):
+    """Verify /api/vision/detections, /api/vision/sample, and /api/vision/metrics endpoints."""
+    # Metrics
+    resp_metrics = client.get("/api/vision/metrics")
+    assert resp_metrics.status_code == 200
+    metrics = resp_metrics.json()
+    assert "total_frames_processed" in metrics
+
+    # Sample pass
+    resp_sample = client.post("/api/vision/sample?cam_id=cam_horseshoe_curve&train_num=42")
+    assert resp_sample.status_code == 200
+    sample_data = resp_sample.json()
+    assert sample_data["train_present"] is True
+    assert sample_data["scene_classification"] == "TRAIN_IN_FRAME"
+    assert sample_data["total_bounding_boxes"] > 0
+
+    # Detections list
+    resp_det = client.get("/api/vision/detections")
+    assert resp_det.status_code == 200
+    det_data = resp_det.json()
+    assert det_data["total"] >= 1
+    assert "detections" in det_data
+
+    # Camera-specific detections
+    resp_cam_det = client.get("/api/vision/detections/cam_horseshoe_curve")
+    assert resp_cam_det.status_code == 200
+    assert resp_cam_det.json()["cam_id"] == "cam_horseshoe_curve"
+
+    # 404 for nonexistent camera in vision sample
+    resp_sample_404 = client.post("/api/vision/sample?cam_id=nonexistent_cam")
+    assert resp_sample_404.status_code == 404
+
+
+def test_index_html_stream_vision_invariants():
+    """Verify index.html contains vision_detection SSE listener and HLS status badges."""
+    from server import INDEX_HTML
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "addEventListener('vision_detection'" in html
+    assert "Trackside Vision Detection" in html
+    assert "HLS 1080p · CV Vision Active" in html
+
+
 
 
 

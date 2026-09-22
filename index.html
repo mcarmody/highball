@@ -614,6 +614,7 @@
               <div class="text-slate-400 text-[11px]">${props.location} · ${props.milepost}</div>
               <div class="text-slate-400 text-[11px]">Subdivision: <span class="text-slate-200">${props.subdivision || 'Mainline'}</span></div>
               <div class="text-slate-400 text-[11px]">Route: <span class="text-slate-200">${props.route}</span></div>
+              <div class="flex items-center space-x-1.5 text-[10px] text-emerald-400 font-mono"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span><span>HLS 1080p · CV Vision Active</span></div>
               <div class="pt-1 flex items-center space-x-1.5">
                 <button onclick="openCamModal('${safeName}', '${safeLoc}', '${safeEmbed}', '${safeProv}', '${safeStream}')" class="flex-1 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1 transition">
                   <i class="fa-solid fa-play text-[10px]"></i>
@@ -2420,6 +2421,15 @@
             if (data) {
               playApproachChime();
               refreshTelemetry();
+            }
+          } catch (err) {}
+        });
+
+        sseSource.addEventListener('vision_detection', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data && data.train_present) {
+              console.log('[Highball CV] Trackside Vision Detection:', data.camera_name, data.lead_unit, data.total_bounding_boxes);
             }
           } catch (err) {}
         });

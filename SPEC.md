@@ -39,16 +39,16 @@ from a moving train to the nearest downstream junction camera.
 ## 4. Task Breakdown (Sprint 1, ~48h)
 
 **Phase 1 (0-24h) — pipelines:**
-- [ ] Amos: Amtraker polling worker + normalized position schema
-- [ ] Amos: GTFS-RT onboarding for 1-2 pilot agencies
-- [ ] Zero: identify and vet 2-3 open trackside cam sources (non-VRF)
-- [ ] Zero: single-camera YOLO consist detector, proof of concept
+- [x] Amos: Amtraker polling worker + normalized position schema
+- [x] Amos: GTFS-RT onboarding for 1-2 pilot agencies
+- [x] Zero: identify and vet 2-3 open trackside cam sources (non-VRF)
+- [x] Zero: single-camera YOLO consist detector, proof of concept
 
 **Phase 2 (24-48h) — integration:**
-- [ ] Amos: Leaflet dark canvas consuming the SSE position stream
-- [ ] Amos: route/milepost graph + nearest-cam lookup
-- [ ] Zero: HLS ingest wired to detection loop, results over SSE
-- [ ] Joint: cam-jump UI wired end to end
+- [x] Amos: Leaflet dark canvas consuming the SSE position stream
+- [x] Amos: route/milepost graph + nearest-cam lookup
+- [x] Zero: HLS ingest wired to detection loop, results over SSE
+- [x] Joint: cam-jump UI wired end to end
 
 ## 5. Cadence & UAT
 
