@@ -265,7 +265,7 @@ def _fetch_flights() -> List[Dict[str, Any]]:
     try:
         resp = requests.get(url, headers={"User-Agent": "HighballTransitTracker/1.0"}, timeout=4.0)
         if resp.status_code == 200:
-            parsed = parse_opensky_states(resp.json())
+            parsed = parse_opensky_states(resp.json(), include_ground=False)
             features = parsed.get("features", [])
             _flight_cache["timestamp"] = now
             _flight_cache["features"] = features
@@ -399,6 +399,8 @@ async def get_trains(
         mode_target = mode.lower()
         if mode_target == "rail":
             filtered = [f for f in filtered if f["properties"].get("mode", "") in ["intercity_rail", "commuter_rail"]]
+        elif mode_target == "ground":
+            filtered = [f for f in filtered if f["properties"].get("mode", "") in ["intercity_rail", "commuter_rail", "subway", "light_rail", "bus"]]
         elif mode_target in ["subway", "metro"]:
             filtered = [f for f in filtered if f["properties"].get("mode", "") in ["subway", "light_rail"]]
         elif mode_target in ["amtrak", "intercity"]:

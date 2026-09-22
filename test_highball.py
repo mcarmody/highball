@@ -434,6 +434,19 @@ def test_get_trains_mode_filter(client, monkeypatch):
                     "mode_label": "Intercity Rail",
                 }
             },
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-71.00, 42.40]},
+                "properties": {
+                    "id": "Flight_DAL100",
+                    "train_num": "DAL100",
+                    "flight_num": "DAL100",
+                    "route": "Delta · FL350",
+                    "agency": "Delta Air Lines",
+                    "mode": "flight",
+                    "mode_label": "Flight",
+                }
+            },
         ]
     }
     monkeypatch.setattr("server.fetch_live_train_geojson", lambda: dummy_geojson)
@@ -457,6 +470,16 @@ def test_get_trains_mode_filter(client, monkeypatch):
     assert resp.status_code == 200
     data = resp.json()
     assert data["total_active"] == 2
+
+    # Filter: ground (includes rail + subway, excludes flight)
+    resp = client.get("/api/trains?mode=ground")
+    assert resp.status_code == 200
+    assert resp.json()["total_active"] == 3
+
+    # Filter: flight
+    resp = client.get("/api/trains?mode=flight")
+    assert resp.status_code == 200
+    assert resp.json()["total_active"] == 1
 
     # Filter: amtrak / intercity alias
     resp = client.get("/api/trains?mode=amtrak")
@@ -716,12 +739,14 @@ def test_index_html_fleet_pills_invariants():
     assert INDEX_HTML.exists()
     html = INDEX_HTML.read_text(encoding="utf-8")
 
-    # Amtrak filter button
+    # Ground & Amtrak filter buttons
+    assert 'data-filter="ground"' in html
+    assert 'filterTrains(\'ground\')' in html
     assert 'data-filter="amtrak"' in html
     assert 'filterTrains(\'amtrak\')' in html
 
     # Live fleet count badge elements
-    for badge_id in ["count-all", "count-amtrak", "count-subway", "count-commuter", "count-bus", "count-flight", "count-approaching", "count-highspeed"]:
+    for badge_id in ["count-ground", "count-all", "count-amtrak", "count-subway", "count-commuter", "count-bus", "count-flight", "count-approaching", "count-highspeed"]:
         assert f'id="{badge_id}"' in html
 
     # Scoped selector prevents mangling trail-btn or labels-btn

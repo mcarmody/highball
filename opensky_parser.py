@@ -61,7 +61,7 @@ def resolve_airline(callsign: str, country: str) -> str:
     return country or "Commercial / Cargo"
 
 
-def parse_opensky_states(payload: Dict[str, Any]) -> Dict[str, Any]:
+def parse_opensky_states(payload: Dict[str, Any], include_ground: bool = True) -> Dict[str, Any]:
     """Parses OpenSky Network /api/states/all payload into GeoJSON FeatureCollection.
 
     OpenSky state vector array indices:
@@ -107,6 +107,8 @@ def parse_opensky_states(payload: Dict[str, Any]) -> Dict[str, Any]:
         alt_ft = round(alt_m * 3.28084) if alt_m is not None else 0
 
         on_ground = bool(s[8])
+        if on_ground and not include_ground:
+            continue
         vel_mps = s[9] or 0.0
         speed_mph = round(vel_mps * 2.23694, 1)
         track = s[10]
