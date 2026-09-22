@@ -67,6 +67,10 @@
         <i class="fa-solid fa-clapperboard text-slate-400" id="director-icon"></i>
         <span class="hidden sm:inline">Director: <span id="director-status" class="font-semibold text-slate-500">OFF</span></span>
       </button>
+      <button id="pip-toggle-btn" onclick="togglePip()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-400 flex items-center space-x-1.5 transition" title="Toggle Floating Trackside Picture-in-Picture">
+        <i class="fa-solid fa-tv text-slate-400" id="pip-icon"></i>
+        <span class="hidden sm:inline">PIP: <span id="pip-status" class="font-semibold text-slate-500">OFF</span></span>
+      </button>
       <button id="audio-btn" onclick="toggleAudio()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-indigo-400 flex items-center transition" title="Toggle audio chime">
         <i class="fa-solid fa-bell"></i>
         <span class="ml-1 hidden sm:inline">Alerts: ON</span>
@@ -201,6 +205,48 @@
         </div>
         <div id="sheet-history-list" class="flex-1 overflow-y-auto p-3 space-y-2 hidden">
           <!-- Populated synchronously from historyEvents -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Trackside Picture-in-Picture (PIP) Live Cam Player -->
+    <div id="pip-container" class="absolute bottom-20 md:bottom-6 right-4 md:right-6 z-[550] w-72 sm:w-80 md:w-96 rounded-xl bg-slate-900/95 border border-indigo-500/50 shadow-2xl backdrop-blur-md overflow-hidden hidden transition-all duration-300 flex flex-col pointer-events-auto">
+      <!-- PIP Header -->
+      <div class="px-3 py-2 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between text-xs select-none">
+        <div class="flex items-center space-x-2 truncate mr-2">
+          <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0"></span>
+          <span id="pip-title" class="font-semibold text-slate-100 truncate text-[11px]">Trackside Live PIP</span>
+          <span id="pip-badge" class="px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 text-[9px] font-mono shrink-0 hidden">AUTO-SYNC</span>
+        </div>
+        <div class="flex items-center space-x-1.5 shrink-0 text-slate-400">
+          <button onclick="togglePipAutoSync()" id="pip-sync-btn" class="p-1 rounded hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 transition" title="Toggle Auto-Sync with Director">
+            <i class="fa-solid fa-clapperboard text-[10px]"></i>
+          </button>
+          <button onclick="expandPipToModal()" class="p-1 rounded hover:bg-slate-800 hover:text-slate-200 transition" title="Expand to Full Modal">
+            <i class="fa-solid fa-expand text-[10px]"></i>
+          </button>
+          <button onclick="togglePipMinimize()" id="pip-min-btn" class="p-1 rounded hover:bg-slate-800 hover:text-slate-200 transition" title="Minimize / Restore">
+            <i class="fa-solid fa-minus text-[10px]"></i>
+          </button>
+          <button onclick="closePip()" class="p-1 rounded hover:bg-slate-800 hover:text-slate-200 transition" title="Close PIP">
+            <i class="fa-solid fa-xmark text-xs"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- PIP Body (Video Player) -->
+      <div id="pip-body" class="flex flex-col transition-all duration-300">
+        <div class="w-full aspect-video bg-black relative flex items-center justify-center">
+          <iframe id="pip-iframe" class="w-full h-full" src="" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+          <div id="pip-placeholder" class="hidden absolute inset-0 bg-slate-950 flex flex-col items-center justify-center space-y-1.5 text-slate-500 text-xs">
+            <i class="fa-solid fa-video-slash text-xl text-slate-600"></i>
+            <span>No Active Feed</span>
+          </div>
+        </div>
+        <!-- PIP Footer Subtitle -->
+        <div class="px-3 py-1.5 bg-slate-950/90 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+          <span id="pip-subtitle" class="truncate font-mono">Standby · Scenic patrol</span>
+          <span id="pip-provider" class="shrink-0 text-slate-500 text-[9px]">Virtual Railfan</span>
         </div>
       </div>
     </div>
@@ -510,10 +556,14 @@
               <div class="text-slate-400 text-[11px]">${props.location} · ${props.milepost}</div>
               <div class="text-slate-400 text-[11px]">Subdivision: <span class="text-slate-200">${props.subdivision || 'Mainline'}</span></div>
               <div class="text-slate-400 text-[11px]">Route: <span class="text-slate-200">${props.route}</span></div>
-              <div class="pt-1">
-                <button onclick="openCamModal('${safeName}', '${safeLoc}', '${safeEmbed}', '${safeProv}', '${safeStream}')" class="w-full py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1 transition">
+              <div class="pt-1 flex items-center space-x-1.5">
+                <button onclick="openCamModal('${safeName}', '${safeLoc}', '${safeEmbed}', '${safeProv}', '${safeStream}')" class="flex-1 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1 transition">
                   <i class="fa-solid fa-play text-[10px]"></i>
-                  <span>Jump to Live Feed</span>
+                  <span>Live Feed</span>
+                </button>
+                <button onclick="openPipForCam('${safeName}', '${safeLoc}', '${safeEmbed}', '${safeProv}', '${safeStream}', 'Manual trackside select')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 font-medium text-xs flex items-center justify-center space-x-1 transition border border-slate-700" title="Watch in Floating Picture-in-Picture">
+                  <i class="fa-solid fa-tv text-[10px]"></i>
+                  <span>PIP</span>
                 </button>
               </div>
             </div>
@@ -852,9 +902,30 @@
               const zoomLevel = isPassby ? 14 : 12;
               map.flyTo([camLat, camLon], zoomLevel, { duration: 1.5 });
             }
+          // Auto-Sync floating PIP player if active
+          if (pipActive && pipAutoSync) {
+            openPipForCam(
+              safeCamName,
+              safeCamLoc,
+              safeEmbedUrl,
+              safeProvider,
+              safeStreamUrl,
+              isPassby ? `PASS-BY: Train #${train.train_num || ''}` : `Intercepting Train #${train.train_num || ''} (${dist} mi)`
+            );
           }
         } else {
           if (hud) hud.classList.add('hidden');
+          if (pipActive && pipAutoSync && dir.camera && (!pipCurrentCam || pipCurrentCam.name !== dir.camera.name)) {
+            const sc = dir.camera;
+            openPipForCam(
+              sc.name,
+              sc.location,
+              sc.embed_url,
+              sc.provider,
+              sc.stream_url,
+              dir.reason || 'Scenic patrol'
+            );
+          }
         }
       } catch (e) {
         console.warn('Auto-Director evaluation error:', e);
@@ -1149,10 +1220,16 @@
               <span>Speed: <span class="font-mono text-slate-300">${evt.train.speed_mph} mph</span></span>
               ${evt.eta_minutes ? `<span class="font-mono text-emerald-300">ETA: ~${evt.eta_minutes}m</span>` : '<span class="font-mono text-slate-500">Departing</span>'}
             </div>
-            <button onclick="openCamModal('${(evt.camera.name || '').replace(/'/g, "\\'")}', '${(evt.camera.location || '').replace(/'/g, "\\'")}', '${(evt.camera.embed_url || '').replace(/'/g, "\\'")}', '${(evt.camera.provider || '').replace(/'/g, "\\'")}', '${(evt.camera.stream_url || '').replace(/'/g, "\\'")}')" class="w-full py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white text-[11px] font-medium flex items-center justify-center space-x-1.5 transition">
-              <i class="fa-solid fa-tv text-[10px]"></i>
-              <span>Jump to Stream</span>
-            </button>
+            <div class="flex items-center space-x-1.5 pt-0.5">
+              <button onclick="openCamModal('${(evt.camera.name || '').replace(/'/g, "\\'")}', '${(evt.camera.location || '').replace(/'/g, "\\'")}', '${(evt.camera.embed_url || '').replace(/'/g, "\\'")}', '${(evt.camera.provider || '').replace(/'/g, "\\'")}', '${(evt.camera.stream_url || '').replace(/'/g, "\\'")}')" class="flex-1 py-1 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white text-[11px] font-medium flex items-center justify-center space-x-1.5 transition">
+                <i class="fa-solid fa-play text-[10px]"></i>
+                <span>Jump to Modal</span>
+              </button>
+              <button onclick="openPipForCam('${(evt.camera.name || '').replace(/'/g, "\\'")}', '${(evt.camera.location || '').replace(/'/g, "\\'")}', '${(evt.camera.embed_url || '').replace(/'/g, "\\'")}', '${(evt.camera.provider || '').replace(/'/g, "\\'")}', '${(evt.camera.stream_url || '').replace(/'/g, "\\'")}', 'Tracking Train #${evt.train.train_num} (${evt.distance_miles} mi)')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white border border-slate-700 text-[11px] font-medium flex items-center justify-center space-x-1 transition" title="Watch in Floating Picture-in-Picture">
+                <i class="fa-solid fa-tv text-[10px]"></i>
+                <span>PIP</span>
+              </button>
+            </div>
           </div>
         `;
       }).join('');
@@ -1312,6 +1389,172 @@
 
     function resetMapView() {
       map.setView([39.8283, -98.5795], 4);
+    }
+
+    // Floating Trackside Picture-in-Picture (PIP) Controller
+    let pipActive = false;
+    let pipAutoSync = true;
+    let pipCurrentCam = null;
+    let pipMinimized = false;
+
+    function togglePip() {
+      if (pipActive) {
+        closePip();
+      } else {
+        openPipAuto();
+      }
+    }
+
+    async function openPipAuto() {
+      try {
+        const resp = await fetch('/api/director');
+        if (resp.ok) {
+          const dir = await resp.json();
+          if (dir.camera) {
+            openPipForCam(
+              dir.camera.name,
+              dir.camera.location,
+              dir.camera.embed_url,
+              dir.camera.provider,
+              dir.camera.stream_url,
+              dir.reason
+            );
+            return;
+          }
+        }
+      } catch (e) {}
+
+      if (camData.length > 0) {
+        const c = camData[0].properties || camData[0];
+        openPipForCam(c.name, c.location, c.embed_url, c.provider, c.stream_url, 'Manual feed select');
+      }
+    }
+
+    function openPipForCam(name, loc, embedUrl, provider, streamUrl, subtitle = 'Trackside live feed') {
+      pipActive = true;
+      pipCurrentCam = { name, loc, embedUrl, provider, streamUrl };
+
+      const container = document.getElementById('pip-container');
+      const title = document.getElementById('pip-title');
+      const sub = document.getElementById('pip-subtitle');
+      const prov = document.getElementById('pip-provider');
+      const iframe = document.getElementById('pip-iframe');
+      const placeholder = document.getElementById('pip-placeholder');
+      const toggleBtn = document.getElementById('pip-toggle-btn');
+      const statusText = document.getElementById('pip-status');
+      const icon = document.getElementById('pip-icon');
+      const badge = document.getElementById('pip-badge');
+
+      if (title) title.innerText = name || 'Railfan Live Cam';
+      if (sub) sub.innerText = subtitle;
+      if (prov) prov.innerText = provider || 'Virtual Railfan';
+
+      if (toggleBtn && statusText && icon) {
+        statusText.innerText = 'ON';
+        statusText.className = 'font-semibold text-indigo-400';
+        icon.className = 'fa-solid fa-tv text-indigo-400 animate-pulse';
+        toggleBtn.className = 'px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-indigo-500/50 text-xs text-indigo-400 flex items-center space-x-1.5 transition shadow-sm';
+      }
+
+      if (badge) {
+        if (pipAutoSync) badge.classList.remove('hidden');
+        else badge.classList.add('hidden');
+      }
+
+      let finalEmbed = (embedUrl && embedUrl !== '' && embedUrl !== 'undefined') ? embedUrl : '';
+      if (!finalEmbed && streamUrl && streamUrl !== '' && streamUrl !== 'undefined') {
+        finalEmbed = streamUrl;
+      }
+      if (finalEmbed) {
+        const ytMatch = finalEmbed.match(/(?:v=|\/v\/|youtu\.be\/|\/embed\/)([A-Za-z0-9_-]{11})/);
+        if (ytMatch) {
+          finalEmbed = `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&mute=1&enablejsapi=1`;
+        }
+      }
+
+      if (iframe) {
+        if (finalEmbed) {
+          if (iframe.src !== finalEmbed) {
+            iframe.src = finalEmbed;
+          }
+          iframe.classList.remove('hidden');
+          if (placeholder) placeholder.classList.add('hidden');
+        } else {
+          iframe.src = 'about:blank';
+          iframe.classList.add('hidden');
+          if (placeholder) placeholder.classList.remove('hidden');
+        }
+      }
+
+      if (container) {
+        container.classList.remove('hidden');
+      }
+    }
+
+    function closePip() {
+      pipActive = false;
+      pipCurrentCam = null;
+
+      const container = document.getElementById('pip-container');
+      const iframe = document.getElementById('pip-iframe');
+      const toggleBtn = document.getElementById('pip-toggle-btn');
+      const statusText = document.getElementById('pip-status');
+      const icon = document.getElementById('pip-icon');
+
+      if (iframe) {
+        iframe.src = 'about:blank';
+      }
+      if (container) {
+        container.classList.add('hidden');
+      }
+      if (toggleBtn && statusText && icon) {
+        statusText.innerText = 'OFF';
+        statusText.className = 'font-semibold text-slate-500';
+        icon.className = 'fa-solid fa-tv text-slate-400';
+        toggleBtn.className = 'px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-400 flex items-center space-x-1.5 transition';
+      }
+    }
+
+    function togglePipMinimize() {
+      pipMinimized = !pipMinimized;
+      const body = document.getElementById('pip-body');
+      const minBtn = document.getElementById('pip-min-btn');
+      if (body) {
+        if (pipMinimized) {
+          body.classList.add('hidden');
+          if (minBtn) minBtn.innerHTML = '<i class="fa-solid fa-chevron-up text-[10px]"></i>';
+        } else {
+          body.classList.remove('hidden');
+          if (minBtn) minBtn.innerHTML = '<i class="fa-solid fa-minus text-[10px]"></i>';
+        }
+      }
+    }
+
+    function togglePipAutoSync() {
+      pipAutoSync = !pipAutoSync;
+      const btn = document.getElementById('pip-sync-btn');
+      const badge = document.getElementById('pip-badge');
+      if (btn) {
+        btn.className = pipAutoSync 
+          ? 'p-1 rounded hover:bg-slate-800 text-indigo-400 hover:text-indigo-300 transition'
+          : 'p-1 rounded hover:bg-slate-800 text-slate-500 hover:text-slate-300 transition';
+      }
+      if (badge) {
+        if (pipAutoSync) badge.classList.remove('hidden');
+        else badge.classList.add('hidden');
+      }
+    }
+
+    function expandPipToModal() {
+      if (pipCurrentCam) {
+        openCamModal(
+          pipCurrentCam.name,
+          pipCurrentCam.loc,
+          pipCurrentCam.embedUrl,
+          pipCurrentCam.provider,
+          pipCurrentCam.streamUrl
+        );
+      }
     }
 
     function toggleSidebar() {

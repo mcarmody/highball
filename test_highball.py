@@ -914,6 +914,32 @@ def test_index_html_encounter_analytics():
     assert "Avg Corridor Dwell:" in html
 
 
+def test_pip_player_and_director_integration(client):
+    """Verify index.html includes Trackside Live PIP player, toggle affordances, and auto-sync controls."""
+    from server import INDEX_HTML
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "pip-container" in html
+    assert "pip-iframe" in html
+    assert "pip-toggle-btn" in html
+    assert "openPipForCam" in html
+    assert "togglePipAutoSync" in html
+    assert "expandPipToModal" in html
+    assert "Trackside Live PIP" in html
+
+    # Verify director endpoint provides necessary stream metadata for PIP
+    resp = client.get("/api/director")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "mode" in data
+    assert "camera" in data
+    cam = data["camera"]
+    assert "name" in cam
+    assert "embed_url" in cam
+    assert "provider" in cam
+
+
+
 
 
 
