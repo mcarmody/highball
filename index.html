@@ -99,6 +99,17 @@
       </div>
     </div>
 
+    <!-- Route Highlight Floating HUD Pill -->
+    <div id="route-hud" class="absolute top-14 left-1/2 transform -translate-x-1/2 z-[500] pointer-events-none hidden transition-all duration-200">
+      <div class="px-3.5 py-1.5 rounded-full bg-slate-950/95 border border-sky-500/60 shadow-xl shadow-sky-950/50 backdrop-blur flex items-center space-x-2 text-xs text-slate-200">
+        <span class="w-2 h-2 rounded-full bg-sky-400 animate-pulse"></span>
+        <i class="fa-solid fa-route text-sky-400 text-[11px]"></i>
+        <span id="route-hud-title" class="font-semibold text-slate-100"></span>
+        <span id="route-hud-path" class="text-slate-400 font-mono text-[11px] hidden"></span>
+        <span id="route-hud-corridor" class="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono text-[10px] hidden"></span>
+      </div>
+    </div>
+
     <!-- Floating Filter Drawer / Quick Filter Pill Bar -->
     <div class="absolute top-3 left-3 right-3 sm:right-auto z-[500] flex overflow-x-auto no-scrollbar gap-1.5 pointer-events-auto pb-1 max-w-full">
       <button onclick="filterTrains('all')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-600 text-white shadow-sm border border-sky-500 shrink-0" data-filter="all">All Trains</button>
@@ -442,20 +453,177 @@
       }
     }
 
+    let corridorLayers = {};
+    let routeToCorridors = {};
+    let activeHighlightedCorridors = [];
+    let activeHighlightedBreadcrumb = null;
+    let trainBreadcrumbLayers = {};
+
     // Load Corridors
     async function loadCorridors() {
       try {
         const resp = await fetch('/api/corridors');
         const data = await resp.json();
+        corridorLayers = {};
+        routeToCorridors = {};
+
         L.geoJSON(data, {
-          style: { color: '#6366f1', weight: 2, opacity: 0.35, dashArray: '3, 6' },
+          style: () => ({
+            color: '#6366f1',
+            weight: 2,
+            opacity: 0.35,
+            dashArray: '3, 6'
+          }),
           onEachFeature: (feature, layer) => {
-            layer.bindTooltip(`${feature.properties.name} (${feature.properties.operator})`, { sticky: true });
+            const props = feature.properties || {};
+            const cid = props.corridor_id;
+            if (cid) corridorLayers[cid] = layer;
+
+            const corrName = props.name || 'Rail Corridor';
+            const routes = props.routes || [];
+            routes.forEach(r => {
+              const token = r.toLowerCase().trim();
+              if (!routeToCorridors[token]) routeToCorridors[token] = new Set();
+              routeToCorridors[token].add(cid);
+            });
+            const nameToken = corrName.toLowerCase().trim();
+            if (!routeToCorridors[nameToken]) routeToCorridors[nameToken] = new Set();
+            routeToCorridors[nameToken].add(cid);
+
+            layer.bindTooltip(`${corrName} (${props.operator})`, { sticky: true });
           }
         }).addTo(corridorLayerGroup);
       } catch (err) {
         console.error('Failed to load corridors:', err);
       }
+    }
+
+    function findCorridorsForTrain(route, agency) {
+      if (!route && !agency) return [];
+      const rLower = (route || '').toLowerCase().trim();
+      const aLower = (agency || '').toLowerCase().trim();
+      const matched = new Set();
+
+      for (const [token, cids] of Object.entries(routeToCorridors)) {
+        if (!token) continue;
+        if (rLower.includes(token) || token.includes(rLower) || aLower.includes(token)) {
+          cids.forEach(cid => matched.add(cid));
+        }
+      }
+      return Array.from(matched);
+    }
+
+    function highlightTrainRoute(props) {
+      resetRouteHighlight();
+      if (!props) return;
+
+      const matchedCids = findCorridorsForTrain(props.route, props.agency);
+      let matchedCorridorName = '';
+
+      matchedCids.forEach(cid => {
+        const layer = corridorLayers[cid];
+        if (layer) {
+          layer.setStyle({
+            color: '#38bdf8',
+            weight: 5,
+            opacity: 0.95,
+            dashArray: null
+          });
+          if (layer.bringToFront) layer.bringToFront();
+          activeHighlightedCorridors.push(layer);
+          if (!matchedCorridorName && layer.feature && layer.feature.properties) {
+            matchedCorridorName = layer.feature.properties.name;
+          }
+        }
+      });
+
+      const bKey = props.id || props.train_num;
+      if (bKey && trainBreadcrumbLayers[bKey]) {
+        const bLayer = trainBreadcrumbLayers[bKey];
+        bLayer.setStyle({
+          color: '#22d3ee',
+          weight: 4.5,
+          opacity: 1.0,
+          dashArray: null
+        });
+        if (bLayer.bringToFront) bLayer.bringToFront();
+        activeHighlightedBreadcrumb = bLayer;
+      }
+
+      showRouteHUD(props, matchedCorridorName);
+    }
+
+    function highlightTrainRouteByNum(trainNum) {
+      if (!trainNum) return;
+      const train = trainData.find(t => t.properties && String(t.properties.train_num) === String(trainNum));
+      if (train) {
+        highlightTrainRoute(train.properties);
+      }
+    }
+
+    function resetRouteHighlight() {
+      activeHighlightedCorridors.forEach(layer => {
+        layer.setStyle({
+          color: '#6366f1',
+          weight: 2,
+          opacity: 0.35,
+          dashArray: '3, 6'
+        });
+      });
+      activeHighlightedCorridors = [];
+
+      if (activeHighlightedBreadcrumb) {
+        activeHighlightedBreadcrumb.setStyle({
+          color: activeHighlightedBreadcrumb._defaultColor || '#38bdf8',
+          weight: 2.5,
+          opacity: 0.55,
+          dashArray: '3, 6'
+        });
+        activeHighlightedBreadcrumb = null;
+      }
+
+      hideRouteHUD();
+    }
+
+    function showRouteHUD(props, corridorName) {
+      const hud = document.getElementById('route-hud');
+      if (!hud) return;
+
+      const titleEl = document.getElementById('route-hud-title');
+      const pathEl = document.getElementById('route-hud-path');
+      const corridorPill = document.getElementById('route-hud-corridor');
+
+      const trainNum = props.train_num ? `#${props.train_num}` : '';
+      const routeName = props.route || props.agency || 'Active Transit Route';
+      
+      if (titleEl) titleEl.innerText = `${trainNum} ${routeName}`.trim();
+      if (pathEl) {
+        if (props.origin && props.dest) {
+          pathEl.innerHTML = `${props.origin} &rarr; ${props.dest}`;
+          pathEl.classList.remove('hidden');
+        } else {
+          pathEl.classList.add('hidden');
+        }
+      }
+
+      if (corridorPill) {
+        if (corridorName) {
+          corridorPill.innerText = corridorName;
+          corridorPill.classList.remove('hidden');
+        } else {
+          corridorPill.classList.add('hidden');
+        }
+      }
+
+      hud.classList.remove('hidden');
+      hud.classList.add('flex');
+    }
+
+    function hideRouteHUD() {
+      const hud = document.getElementById('route-hud');
+      if (!hud) return;
+      hud.classList.add('hidden');
+      hud.classList.remove('flex');
     }
 
     // Audio Alert Chimes & Auto-Director
@@ -684,6 +852,7 @@
     function renderTrains() {
       trainLayerGroup.clearLayers();
       if (breadcrumbLayerGroup) breadcrumbLayerGroup.clearLayers();
+      trainBreadcrumbLayers = {};
       const approachingTrainIds = new Set(
         proximityEvents.filter(e => e.trajectory === 'approaching').map(e => e.train.train_num)
       );
@@ -701,20 +870,31 @@
         }
 
         // Historical GPS Breadcrumb Trails
+        const bKey = props.id || props.train_num;
         if (breadcrumbsEnabled && breadcrumbLayerGroup && props.breadcrumbs && props.breadcrumbs.length >= 2) {
           const latlngs = props.breadcrumbs.map(c => [c[1], c[0]]);
           const isFast = (props.speed_mph || 0) >= 60;
-          L.polyline(latlngs, {
-            color: isFast ? '#818cf8' : '#38bdf8',
+          const defaultColor = isFast ? '#818cf8' : '#38bdf8';
+          const line = L.polyline(latlngs, {
+            color: defaultColor,
             weight: 2.5,
             opacity: 0.55,
             dashArray: '3, 6',
             lineCap: 'round'
           }).addTo(breadcrumbLayerGroup);
+          line._defaultColor = defaultColor;
+          if (bKey) trainBreadcrumbLayers[bKey] = line;
         }
 
         const marker = L.marker([coords[1], coords[0]], {
           icon: createTrainIcon(props.heading, props.speed_mph)
+        });
+
+        marker.on('mouseover', () => {
+          highlightTrainRoute(props);
+        });
+        marker.on('mouseout', () => {
+          resetRouteHighlight();
         });
 
         const nextStopHtml = props.next_station 
@@ -777,7 +957,7 @@
         }
 
         return `
-          <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-indigo-500/50 transition flex flex-col space-y-2">
+          <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-sky-500/60 transition flex flex-col space-y-2 cursor-pointer" onmouseenter="highlightTrainRouteByNum('${evt.train.train_num}')" onmouseleave="resetRouteHighlight()">
             <div class="flex items-center justify-between">
               <span class="font-semibold text-xs text-slate-200">Train #${evt.train.train_num} (${evt.train.route})</span>
               <div class="flex items-center space-x-1.5">
@@ -862,7 +1042,7 @@
         const safeStreamUrl = streamUrl.replace(/'/g, "\\'");
 
         return `
-          <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-slate-700 transition flex flex-col space-y-2">
+          <div class="p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:border-sky-500/60 transition flex flex-col space-y-2 cursor-pointer" onmouseenter="highlightTrainRouteByNum('${evt.train_num}')" onmouseleave="resetRouteHighlight()">
             <div class="flex items-center justify-between">
               <span class="font-semibold text-xs text-slate-200">Train #${evt.train_num} (${evt.route})</span>
               <span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono text-[9px] uppercase font-semibold">Completed</span>

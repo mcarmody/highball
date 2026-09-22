@@ -342,6 +342,12 @@ def test_index_html_invariants():
     assert "openCamModal" in html
     assert "closeCamModal" in html
 
+    # Route highlighting invariants
+    assert "route-hud" in html
+    assert "highlightTrainRoute" in html
+    assert "resetRouteHighlight" in html
+    assert "findCorridorsForTrain" in html
+
 
 def test_all_webcams_have_live_embed_urls():
     """Verify all registered rail webcams have valid in-app embed and stream URLs."""
@@ -365,6 +371,24 @@ def test_webcams_endpoint_embed_urls(client):
         props = feat["properties"]
         assert props.get("embed_url"), f"Cam {props.get('cam_id')} has no embed_url in GeoJSON"
         assert "youtube-nocookie.com/embed/" in props["embed_url"]
+
+
+def test_corridors_routes_mapping(client):
+    """Verify /api/corridors returns enriched corridors with mapped route patterns."""
+    resp = client.get("/api/corridors")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_corridors"] >= 10
+    routes_found = set()
+    for feat in data["features"]:
+        props = feat["properties"]
+        assert "routes" in props
+        for r in props["routes"]:
+            routes_found.add(r)
+    assert "Southwest Chief" in routes_found
+    assert "Acela" in routes_found
+    assert "Empire Builder" in routes_found
+    assert "Coast Starlight" in routes_found
 
 
 
