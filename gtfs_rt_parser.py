@@ -57,6 +57,22 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
             trip.get("route_id") or trip.get("routeId") or trip.get("RouteId")
             or "Regional Rail"
         )
+
+        # Mike, 2026-09-21: Metra's GPS breadcrumb trails were "a disaster,
+        # just straight lines" crisscrossing the whole region. Root cause:
+        # many Metra vehicles in this feed carry no `trip` object at all,
+        # so trip_id fell back to the GTFS-RT FeedEntity's own `id` — an
+        # opaque per-message sequence position, NOT a stable per-vehicle
+        # identifier. Confirmed live: "Metra_66"'s breadcrumb history
+        # cycled through ~4 wildly separated real locations, because a
+        # different physical train landed at entity-index 66 on each poll.
+        # The nested VehicleDescriptor.id (here) IS meant to be the
+        # persistent real-world vehicle id and should be preferred for any
+        # per-vehicle identity/tracking key; trip_id stays as the
+        # human-readable label.
+        vehicle_desc = v.get("vehicle") or v.get("Vehicle") or {}
+        vehicle_id = str(vehicle_desc.get("id") or vehicle_desc.get("Id") or "") or None
+        identity_id = vehicle_id or trip_id
         speed_mps = pos.get("speed") or pos.get("Speed") or 0.0
         speed_mph = round(speed_mps * 2.23694, 1) if speed_mps is not None else 0.0
         bearing = pos.get("bearing") or pos.get("Bearing")
@@ -70,7 +86,7 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
                 "coordinates": [float(lon), float(lat)],
             },
             "properties": {
-                "id": f"{agency_id}_{trip_id}",
+                "id": f"{agency_id}_{identity_id}",
                 "train_num": trip_id,
                 "route": f"{agency_id} {route_id}",
                 "agency": agency_id,

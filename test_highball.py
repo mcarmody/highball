@@ -119,6 +119,43 @@ def test_gtfs_rt_parser():
     assert feat["properties"]["heading"] == 90.0
 
 
+def test_gtfs_rt_parser_stable_id_without_trip_object():
+    """Regression test for the 2026-09-21 Metra breadcrumb bug: a real
+    GTFS-RT entity with no `trip` object at all (confirmed live in
+    Transitland's Metra proxy feed) must key off the persistent
+    VehicleDescriptor.id, not the FeedEntity's own opaque per-message
+    `id` — using the latter meant a different physical train could land
+    on the same identifier every poll, silently merging unrelated
+    trains' GPS histories into one nonsensical "breadcrumb trail"."""
+    from gtfs_rt_parser import parse_gtfs_rt_vehicle_positions
+
+    # Two separate polls, same entity index (2), two different real vehicles
+    # — this is exactly the shape Transitland's Metra proxy returns.
+    poll_1 = {
+        "header": {"gtfs_realtime_version": "2.0", "timestamp": 1},
+        "entity": [{"id": "2", "vehicle": {
+            "vehicle": {"id": "8531"},
+            "position": {"latitude": 41.5, "longitude": -88.0},
+        }}],
+    }
+    poll_2 = {
+        "header": {"gtfs_realtime_version": "2.0", "timestamp": 2},
+        "entity": [{"id": "2", "vehicle": {
+            "vehicle": {"id": "9042"},
+            "position": {"latitude": 42.6, "longitude": -87.8},
+        }}],
+    }
+    id_1 = parse_gtfs_rt_vehicle_positions(poll_1, agency_id="Metra")["features"][0]["properties"]["id"]
+    id_2 = parse_gtfs_rt_vehicle_positions(poll_2, agency_id="Metra")["features"][0]["properties"]["id"]
+    assert id_1 != id_2, (
+        "Two different physical vehicles sharing a GTFS-RT entity index "
+        "produced the same identity id — this is the exact bug that "
+        "corrupted breadcrumb trails in production."
+    )
+    assert id_1 == "Metra_8531"
+    assert id_2 == "Metra_9042"
+
+
 def test_get_trains_agency_filter(client):
     resp = client.get("/api/trains?agency=Amtrak")
     assert resp.status_code in [200, 502]
