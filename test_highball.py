@@ -840,6 +840,81 @@ def test_index_html_telemetry_mode_query():
     assert "latestFleetCounts" in html
 
 
+def test_encounter_tracker_analytics():
+    """Verify EncounterTracker calculates flyby velocity, dwell, CPA, and junction analytics."""
+    from encounter_tracker import EncounterTracker
+
+    tracker = EncounterTracker(max_history=10, encounter_radius_miles=5.0)
+    # Empty case
+    empty_stats = tracker.get_analytics()
+    assert empty_stats["total_completed"] == 0
+    assert empty_stats["peak_speed_mph"] == 0.0
+    assert empty_stats["fastest_train"] is None
+    assert empty_stats["busiest_camera"] is None
+
+    # Simulate encounter 1: Train 3 at Fullerton (peak 65 mph, CPA 1.2 mi, duration 120s)
+    t0 = 1000.0
+    ev1 = {
+        "train": {"train_num": "3", "route": "Southwest Chief", "speed_mph": 45},
+        "camera": {"cam_id": "cam_fullerton", "name": "Fullerton Depot", "location": "Fullerton, CA"},
+        "distance_miles": 3.0,
+        "trajectory": "approaching",
+    }
+    tracker.update([ev1], timestamp=t0)
+    ev1_peak = {
+        "train": {"train_num": "3", "route": "Southwest Chief", "speed_mph": 65},
+        "camera": {"cam_id": "cam_fullerton", "name": "Fullerton Depot", "location": "Fullerton, CA"},
+        "distance_miles": 1.2,
+        "trajectory": "receding",
+    }
+    tracker.update([ev1_peak], timestamp=t0 + 60.0)
+    tracker.update([], timestamp=t0 + 120.0)  # completed
+
+    # Simulate encounter 2: Train 14 at Tehachapi (peak 40 mph, CPA 0.8 mi, duration 180s)
+    t1 = 2000.0
+    ev2 = {
+        "train": {"train_num": "14", "route": "Coast Starlight", "speed_mph": 40},
+        "camera": {"cam_id": "cam_tehachapi", "name": "Tehachapi Loop", "location": "Tehachapi, CA"},
+        "distance_miles": 0.8,
+        "trajectory": "approaching",
+    }
+    tracker.update([ev2], timestamp=t1)
+    tracker.update([], timestamp=t1 + 180.0)  # completed
+
+    analytics = tracker.get_analytics()
+    assert analytics["total_completed"] == 2
+    assert analytics["peak_speed_mph"] == 65.0
+    assert analytics["fastest_train"]["train_num"] == "3"
+    assert analytics["fastest_train"]["speed_mph"] == 65.0
+    assert analytics["closest_cpa_miles"] == 0.8
+    assert analytics["closest_train"]["train_num"] == "14"
+    assert analytics["avg_duration_seconds"] == 150.0  # (120 + 180) / 2
+    assert len(analytics["busiest_cameras"]) == 2
+
+
+def test_encounters_analytics_endpoint(client):
+    """Verify /api/encounters/analytics returns valid JSON schema."""
+    resp = client.get("/api/encounters/analytics")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "total_completed" in data
+    assert "active_count" in data
+    assert "peak_speed_mph" in data
+    assert "avg_duration_seconds" in data
+    assert "busiest_cameras" in data
+
+
+def test_index_html_encounter_analytics():
+    """Verify index.html includes analytics banner and endpoint query."""
+    from server import INDEX_HTML
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    assert "fetch('/api/encounters/analytics')" in html
+    assert "Flyby Telemetry Analytics" in html
+    assert "Peak Velocity:" in html
+    assert "Avg Corridor Dwell:" in html
+
+
+
 
 
 

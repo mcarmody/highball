@@ -559,6 +559,12 @@ async def get_active_encounters():
     return encounter_tracker.get_active_encounters()
 
 
+@app.get("/api/encounters/analytics")
+async def get_encounter_analytics():
+    """Returns aggregated trackside flyby analytics (peak transit speeds, visual dwell, and busiest junctions)."""
+    return encounter_tracker.get_analytics()
+
+
 @app.get("/api/director")
 async def get_director():
     """Returns Auto-Director's recommended camera to watch right now based on active encounters."""

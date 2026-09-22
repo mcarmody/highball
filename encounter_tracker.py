@@ -91,6 +91,66 @@ class EncounterTracker:
         """Returns all encounters currently in progress."""
         return list(self.active_sessions.values())
 
+    def get_analytics(self) -> Dict[str, Any]:
+        """Calculates aggregate flyby analytics across completed encounter history and active sessions."""
+        all_completed = list(self.history)
+        total_completed = len(all_completed)
+
+        if total_completed == 0:
+            return {
+                "total_completed": 0,
+                "active_count": len(self.active_sessions),
+                "peak_speed_mph": 0.0,
+                "fastest_train": None,
+                "closest_cpa_miles": None,
+                "closest_train": None,
+                "avg_duration_seconds": 0.0,
+                "busiest_camera": None,
+                "busiest_cameras": [],
+            }
+
+        fastest = max(all_completed, key=lambda s: s.get("peak_speed_mph", 0.0))
+        closest = min(all_completed, key=lambda s: s.get("closest_distance_miles", 99.0))
+        durations = [s.get("duration_seconds", 0.0) for s in all_completed if s.get("duration_seconds", 0.0) > 0]
+        avg_duration = round(sum(durations) / len(durations), 1) if durations else 0.0
+
+        # Tally cam counts
+        cam_counts: Dict[str, Dict[str, Any]] = {}
+        for s in all_completed:
+            cid = s.get("camera_id", "unknown")
+            if cid not in cam_counts:
+                cam_counts[cid] = {
+                    "camera_id": cid,
+                    "name": s.get("camera_name", cid),
+                    "count": 0,
+                }
+            cam_counts[cid]["count"] += 1
+
+        sorted_cams = sorted(cam_counts.values(), key=lambda c: c["count"], reverse=True)
+        top_cam = sorted_cams[0] if sorted_cams else None
+
+        return {
+            "total_completed": total_completed,
+            "active_count": len(self.active_sessions),
+            "peak_speed_mph": fastest.get("peak_speed_mph", 0.0),
+            "fastest_train": {
+                "train_num": fastest.get("train_num"),
+                "route": fastest.get("route"),
+                "camera_name": fastest.get("camera_name"),
+                "speed_mph": fastest.get("peak_speed_mph"),
+            },
+            "closest_cpa_miles": closest.get("closest_distance_miles"),
+            "closest_train": {
+                "train_num": closest.get("train_num"),
+                "route": closest.get("route"),
+                "camera_name": closest.get("camera_name"),
+                "distance_miles": closest.get("closest_distance_miles"),
+            },
+            "avg_duration_seconds": avg_duration,
+            "busiest_camera": top_cam,
+            "busiest_cameras": sorted_cams[:5],
+        }
+
 
 if __name__ == "__main__":
     tracker = EncounterTracker(encounter_radius_miles=5.0)

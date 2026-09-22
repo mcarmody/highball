@@ -283,6 +283,7 @@
     let currentSidebarTab = 'active';
     let currentFilter = 'ground';
     let latestFleetCounts = null;
+    let encounterAnalytics = null;
     let sidebarOpen = false;
 
     // Mobile Bottom Sheet (Ops Radar Proximity Ledger)
@@ -864,15 +865,17 @@
     async function refreshTelemetry() {
       try {
         const queryMode = currentFilter && currentFilter !== 'all' ? `?mode=${encodeURIComponent(currentFilter)}` : '';
-        const [trainsResp, proxResp, histResp] = await Promise.all([
+        const [trainsResp, proxResp, histResp, analyticsResp] = await Promise.all([
           fetch(`/api/trains${queryMode}`),
           fetch('/api/proximity?max_miles=15.0'),
-          fetch('/api/encounters/history?limit=25')
+          fetch('/api/encounters/history?limit=25'),
+          fetch('/api/encounters/analytics')
         ]);
         
         const trainsGeo = await trainsResp.json();
         const proxData = await proxResp.json();
         const histData = histResp.ok ? await histResp.json() : [];
+        encounterAnalytics = analyticsResp.ok ? await analyticsResp.json() : null;
 
         trainData = trainsGeo.features || [];
         if (trainsGeo.counts) {
@@ -1247,6 +1250,51 @@
           </div>
         `;
       }).join('');
+
+      let analyticsHtml = '';
+      if (encounterAnalytics && encounterAnalytics.total_completed > 0) {
+        const ea = encounterAnalytics;
+        const fastestStr = ea.fastest_train ? `#${ea.fastest_train.train_num} (${ea.peak_speed_mph} mph)` : `${ea.peak_speed_mph} mph`;
+        const closestStr = ea.closest_cpa_miles != null ? `${ea.closest_cpa_miles} mi` : '--';
+        const avgDurStr = ea.avg_duration_seconds ? `${Math.round(ea.avg_duration_seconds)}s` : '--';
+        const busiestCamName = ea.busiest_camera ? ea.busiest_camera.name : '--';
+
+        analyticsHtml = `
+          <div class="p-3 rounded-lg border border-indigo-900/60 bg-indigo-950/20 mb-3 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[11px] font-semibold text-indigo-300 uppercase tracking-wider flex items-center space-x-1.5">
+                <i class="fa-solid fa-chart-line text-[10px]"></i>
+                <span>Flyby Telemetry Analytics</span>
+              </span>
+              <span class="px-1.5 py-0.5 rounded bg-indigo-900/50 text-indigo-300 font-mono text-[9px] font-bold">
+                ${ea.total_completed} Total
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-[10px] pt-1 border-t border-indigo-900/40">
+              <div class="bg-slate-900/70 p-1.5 rounded border border-slate-800/80">
+                <span class="text-slate-400 block text-[9px]">Peak Velocity:</span>
+                <span class="font-mono font-medium text-emerald-300 truncate block" title="${fastestStr}">${fastestStr}</span>
+              </div>
+              <div class="bg-slate-900/70 p-1.5 rounded border border-slate-800/80">
+                <span class="text-slate-400 block text-[9px]">Closest CPA:</span>
+                <span class="font-mono font-medium text-amber-300">${closestStr}</span>
+              </div>
+              <div class="bg-slate-900/70 p-1.5 rounded border border-slate-800/80">
+                <span class="text-slate-400 block text-[9px]">Avg Corridor Dwell:</span>
+                <span class="font-mono font-medium text-sky-300">${avgDurStr}</span>
+              </div>
+              <div class="bg-slate-900/70 p-1.5 rounded border border-slate-800/80">
+                <span class="text-slate-400 block text-[9px]">Busiest Junction:</span>
+                <span class="font-medium text-slate-200 truncate block" title="${busiestCamName}">${busiestCamName}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      const finalHtml = analyticsHtml + historyHtml;
+      container.innerHTML = finalHtml;
+      if (sheetContainer) sheetContainer.innerHTML = finalHtml;
     }
 
     function filterTrains(type) {
