@@ -211,6 +211,44 @@ def test_encounter_tracker_and_history_endpoints(client):
     assert isinstance(resp_active.json(), list)
 
 
+def test_breadcrumbs_endpoint(client):
+    from server import update_breadcrumbs
+
+    # Populate sample train breadcrumb trail
+    mock_features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-104.99, 39.73]},
+            "properties": {"id": "test_train_101", "train_num": "101", "speed_mph": 45.0}
+        }
+    ]
+    update_breadcrumbs(mock_features, now=1000.0)
+    assert mock_features[0]["properties"]["breadcrumbs"] == [[-104.99, 39.73]]
+
+    # Second point with movement
+    mock_features_2 = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-104.95, 39.75]},
+            "properties": {"id": "test_train_101", "train_num": "101", "speed_mph": 48.0}
+        }
+    ]
+    update_breadcrumbs(mock_features_2, now=1015.0)
+    assert len(mock_features_2[0]["properties"]["breadcrumbs"]) == 2
+
+    # Query /api/breadcrumbs endpoint
+    resp = client.get("/api/breadcrumbs")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "FeatureCollection"
+    assert data["total_trails"] >= 1
+    trail = next(f for f in data["features"] if f["properties"]["train_id"] == "test_train_101")
+    assert trail["geometry"]["type"] == "LineString"
+    assert len(trail["geometry"]["coordinates"]) == 2
+    assert trail["properties"]["points_count"] == 2
+
+
+
 
 
 

@@ -101,6 +101,7 @@
       <button onclick="filterTrains('all')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-indigo-600 text-white shadow-sm border border-indigo-500" data-filter="all">All Trains</button>
       <button onclick="filterTrains('approaching')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="approaching">Closing In (&lt;15 mi)</button>
       <button onclick="filterTrains('highspeed')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="highspeed">Fast (&gt;60 mph)</button>
+      <button id="trail-btn" onclick="toggleBreadcrumbs()" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" title="Toggle historical GPS breadcrumb trails">Trails: <span id="trail-status" class="text-emerald-400 font-semibold">ON</span></button>
       <button onclick="resetMapView()" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-400 hover:text-white border border-slate-800 backdrop-blur" title="Recenter USA">
         <i class="fa-solid fa-arrows-to-circle"></i> Recenter
       </button>
@@ -205,9 +206,11 @@
   <script>
     // Map & Layer State
     let map = null;
+    let breadcrumbLayerGroup = null;
     let trainLayerGroup = null;
     let camLayerGroup = null;
     let corridorLayerGroup = null;
+    let breadcrumbsEnabled = true;
     let trainData = [];
     let camData = [];
     let proximityEvents = [];
@@ -231,6 +234,7 @@
       // Add Zoom Control to bottom-right
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
+      breadcrumbLayerGroup = L.layerGroup().addTo(map);
       trainLayerGroup = L.layerGroup().addTo(map);
       camLayerGroup = L.layerGroup().addTo(map);
       corridorLayerGroup = L.layerGroup().addTo(map);
@@ -407,6 +411,30 @@
       }
     }
 
+    function toggleBreadcrumbs() {
+      breadcrumbsEnabled = !breadcrumbsEnabled;
+      const status = document.getElementById('trail-status');
+      const btn = document.getElementById('trail-btn');
+      if (breadcrumbsEnabled) {
+        if (status) {
+          status.innerText = 'ON';
+          status.className = 'text-emerald-400 font-semibold';
+        }
+        if (btn) {
+          btn.className = 'filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur';
+        }
+      } else {
+        if (status) {
+          status.innerText = 'OFF';
+          status.className = 'text-slate-500 font-semibold';
+        }
+        if (btn) {
+          btn.className = 'filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/50 text-slate-500 hover:text-slate-400 border border-slate-800/60 backdrop-blur';
+        }
+      }
+      renderTrains();
+    }
+
     // Approach Chime (<3.0 mi): Two-tone rising chime (D5 -> A5)
     function playApproachChime() {
       if (!audioEnabled) return;
@@ -565,6 +593,7 @@
 
     function renderTrains() {
       trainLayerGroup.clearLayers();
+      if (breadcrumbLayerGroup) breadcrumbLayerGroup.clearLayers();
       const approachingTrainIds = new Set(
         proximityEvents.filter(e => e.trajectory === 'approaching').map(e => e.train.train_num)
       );
@@ -579,6 +608,19 @@
         }
         if (currentFilter === 'highspeed' && props.speed_mph < 60) {
           return;
+        }
+
+        // Historical GPS Breadcrumb Trails
+        if (breadcrumbsEnabled && breadcrumbLayerGroup && props.breadcrumbs && props.breadcrumbs.length >= 2) {
+          const latlngs = props.breadcrumbs.map(c => [c[1], c[0]]);
+          const isFast = (props.speed_mph || 0) >= 60;
+          L.polyline(latlngs, {
+            color: isFast ? '#818cf8' : '#38bdf8',
+            weight: 2.5,
+            opacity: 0.55,
+            dashArray: '3, 6',
+            lineCap: 'round'
+          }).addTo(breadcrumbLayerGroup);
         }
 
         const marker = L.marker([coords[1], coords[0]], {

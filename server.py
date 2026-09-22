@@ -11,6 +11,7 @@ Provides:
 import json
 import os
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -61,6 +62,40 @@ _train_cache: Dict[str, Any] = {
     "geojson": None,
 }
 CACHE_TTL_SECONDS = 15.0
+
+# In-memory GPS breadcrumb history per train: train_key -> deque([[lon, lat], ...], maxlen=15)
+_breadcrumb_history: Dict[str, deque] = {}
+_breadcrumb_last_seen: Dict[str, float] = {}
+
+
+def update_breadcrumbs(features: List[Dict[str, Any]], now: float):
+    """Updates historical GPS breadcrumb trails for active trains."""
+    global _breadcrumb_history, _breadcrumb_last_seen
+    for feat in features:
+        props = feat.get("properties", {})
+        coords = feat.get("geometry", {}).get("coordinates", [])
+        if len(coords) < 2:
+            continue
+        lon, lat = round(float(coords[0]), 5), round(float(coords[1]), 5)
+        key = str(props.get("id") or props.get("train_num") or "")
+        if not key:
+            continue
+        _breadcrumb_last_seen[key] = now
+
+        if key not in _breadcrumb_history:
+            _breadcrumb_history[key] = deque(maxlen=15)
+
+        history = _breadcrumb_history[key]
+        if not history or (abs(history[-1][0] - lon) > 0.0001 or abs(history[-1][1] - lat) > 0.0001):
+            history.append([lon, lat])
+
+        props["breadcrumbs"] = list(history)
+
+    # Prune trains unseen for > 1 hour
+    stale_keys = [k for k, last_ts in _breadcrumb_last_seen.items() if now - last_ts > 3600.0]
+    for k in stale_keys:
+        _breadcrumb_history.pop(k, None)
+        _breadcrumb_last_seen.pop(k, None)
 
 
 def fetch_live_train_geojson() -> Dict[str, Any]:
@@ -181,6 +216,9 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
         except Exception as exc:
             print(f"[Highball] Sound Transit (Transitland) fetch warning: {exc}")
 
+    if features:
+        update_breadcrumbs(features, now)
+
     if not features and _train_cache["geojson"]:
         return _train_cache["geojson"]
 
@@ -193,6 +231,26 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
     _train_cache["timestamp"] = now
     _train_cache["geojson"] = geojson
     return geojson
+
+
+@app.get("/api/breadcrumbs")
+async def get_breadcrumbs():
+    """Returns GeoJSON FeatureCollection of historical GPS breadcrumb polylines for active trains."""
+    features = []
+    for key, trail in _breadcrumb_history.items():
+        if len(trail) >= 2:
+            features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": list(trail),
+                },
+                "properties": {
+                    "train_id": key,
+                    "points_count": len(trail),
+                }
+            })
+    return {"type": "FeatureCollection", "total_trails": len(features), "features": features}
 
 
 @app.get("/", response_class=FileResponse)
