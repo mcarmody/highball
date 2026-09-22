@@ -298,6 +298,8 @@ async def get_proximity_events(
                         "location": cam["location"],
                         "milepost": cam["milepost"],
                         "provider": cam["provider"],
+                        "lat": cam["lat"],
+                        "lon": cam["lon"],
                         "stream_url": cam.get("stream_url", ""),
                         "embed_url": cam.get("embed_url", ""),
                     },

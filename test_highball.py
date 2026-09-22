@@ -156,10 +156,19 @@ def test_auto_director_logic():
     decision = select_director_camera([imminent_event])
     assert decision["mode"] == "intercept"
     assert decision["camera"]["cam_id"] == "cam_flagstaff_depot"
+    assert decision["is_passby"] is False
+
+    # Imminent pass-by event (<1.0 mi)
+    passby_event = dict(imminent_event)
+    passby_event["distance_miles"] = 0.6
+    passby_decision = select_director_camera([passby_event])
+    assert passby_decision["mode"] == "intercept"
+    assert passby_decision["is_passby"] is True
 
     # Quiet window falls back to scenic patrol
     empty_decision = select_director_camera([])
     assert empty_decision["mode"] == "scenic_patrol"
+    assert empty_decision["is_passby"] is False
     assert "camera" in empty_decision
 
 

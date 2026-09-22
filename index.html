@@ -59,7 +59,11 @@
     </div>
 
     <!-- Quick Action / Status Pill -->
-    <div class="flex items-center space-x-3">
+    <div class="flex items-center space-x-2.5">
+      <button id="director-btn" onclick="toggleAutoDirector()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-400 flex items-center space-x-1.5 transition" title="Auto-Director: Automatically tracks and zooms to imminent train encounters (<1 mi)">
+        <i class="fa-solid fa-clapperboard text-slate-400" id="director-icon"></i>
+        <span class="hidden sm:inline">Director: <span id="director-status" class="font-semibold text-slate-500">OFF</span></span>
+      </button>
       <button id="audio-btn" onclick="toggleAudio()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-indigo-400 flex items-center transition" title="Toggle audio chime">
         <i class="fa-solid fa-bell"></i>
         <span class="ml-1 hidden sm:inline">Alerts: ON</span>
@@ -81,6 +85,16 @@
 
     <!-- Leaflet Map Container -->
     <div id="map" class="flex-1 h-full w-full z-0"></div>
+
+    <!-- Auto-Director Floating HUD Pill -->
+    <div id="director-hud" class="absolute top-4 left-1/2 transform -translate-x-1/2 z-[500] pointer-events-auto hidden">
+      <div class="px-3.5 py-1.5 rounded-full bg-slate-900/95 border border-indigo-500/50 backdrop-blur shadow-xl flex items-center space-x-2.5 text-xs text-slate-200">
+        <span class="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+        <i class="fa-solid fa-clapperboard text-indigo-400 text-[11px]"></i>
+        <span id="director-hud-text" class="font-medium text-slate-200">Auto-Director Active</span>
+        <button id="director-jump-btn" onclick="" class="ml-1 px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-semibold transition">Watch</button>
+      </div>
+    </div>
 
     <!-- Floating Filter Drawer / Quick Filter Pill Bar -->
     <div class="absolute top-4 left-4 z-[500] flex flex-wrap gap-2 pointer-events-auto">
@@ -350,10 +364,13 @@
       }
     }
 
-    // Audio Alert Chime
+    // Audio Alert Chimes & Auto-Director
     let audioEnabled = true;
     let audioCtx = null;
     let lastAlertedTrain = null;
+    let lastPassbyTrain = null;
+    let autoDirectorEnabled = false;
+    let lastDirectorTarget = null;
 
     function toggleAudio() {
       audioEnabled = !audioEnabled;
@@ -367,6 +384,30 @@
       }
     }
 
+    function toggleAutoDirector() {
+      autoDirectorEnabled = !autoDirectorEnabled;
+      const btn = document.getElementById('director-btn');
+      const status = document.getElementById('director-status');
+      const icon = document.getElementById('director-icon');
+      const hud = document.getElementById('director-hud');
+
+      if (autoDirectorEnabled) {
+        status.innerText = 'ON';
+        status.className = 'font-semibold text-emerald-400';
+        icon.className = 'fa-solid fa-clapperboard text-emerald-400 animate-pulse';
+        btn.className = 'px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-emerald-500/50 text-xs text-emerald-400 flex items-center space-x-1.5 transition shadow-sm';
+        evaluateAutoDirector();
+      } else {
+        status.innerText = 'OFF';
+        status.className = 'font-semibold text-slate-500';
+        icon.className = 'fa-solid fa-clapperboard text-slate-400';
+        btn.className = 'px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-400 flex items-center space-x-1.5 transition';
+        if (hud) hud.classList.add('hidden');
+        lastDirectorTarget = null;
+      }
+    }
+
+    // Approach Chime (<3.0 mi): Two-tone rising chime (D5 -> A5)
     function playApproachChime() {
       if (!audioEnabled) return;
       try {
@@ -383,6 +424,82 @@
         osc.start();
         osc.stop(audioCtx.currentTime + 0.65);
       } catch(e) { console.log('Audio error:', e); }
+    }
+
+    // Imminent Pass-By Chime (<1.0 mi CPA): 3-tone crossing bell chord (C5 -> E5 -> G5)
+    function playPassbyChime() {
+      if (!audioEnabled) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+        notes.forEach((freq, i) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.type = 'triangle';
+          const startTime = audioCtx.currentTime + (i * 0.08);
+          osc.frequency.setValueAtTime(freq, startTime);
+          gain.gain.setValueAtTime(0.15, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.45);
+          osc.start(startTime);
+          osc.stop(startTime + 0.5);
+        });
+      } catch(e) { console.log('Audio error:', e); }
+    }
+
+    // Auto-Director Intercept & Viewport Switching Engine
+    async function evaluateAutoDirector() {
+      if (!autoDirectorEnabled) return;
+      try {
+        const resp = await fetch('/api/director');
+        if (!resp.ok) return;
+        const dir = await resp.json();
+        const hud = document.getElementById('director-hud');
+        const hudText = document.getElementById('director-hud-text');
+        const jumpBtn = document.getElementById('director-jump-btn');
+
+        if (dir.mode === 'intercept' && dir.camera) {
+          const cam = dir.camera;
+          const enc = dir.encounter || {};
+          const train = enc.train || {};
+          const dist = enc.distance_miles;
+          const isPassby = dist <= 1.0 || dir.is_passby;
+
+          if (hud) hud.classList.remove('hidden');
+          if (hudText) {
+            hudText.innerHTML = isPassby 
+              ? `<span class="text-amber-300 font-mono font-bold">PASS-BY (&lt;1mi):</span> Train #${train.train_num || ''} at ${cam.name}`
+              : `<span>Tracking Train #${train.train_num || ''} → ${cam.name} (${dist} mi)</span>`;
+          }
+
+          const safeCamName = (cam.name || '').replace(/'/g, "\\'");
+          const safeCamLoc = (cam.location || '').replace(/'/g, "\\'");
+          const safeEmbedUrl = (cam.embed_url || '').replace(/'/g, "\\'");
+          const safeProvider = (cam.provider || '').replace(/'/g, "\\'");
+          const safeStreamUrl = (cam.stream_url || '').replace(/'/g, "\\'");
+
+          if (jumpBtn) {
+            jumpBtn.setAttribute('onclick', `openCamModal('${safeCamName}', '${safeCamLoc}', '${safeEmbedUrl}', '${safeProvider}', '${safeStreamUrl}')`);
+          }
+
+          // Dynamic Viewport Switching: Pan smoothly to camera junction
+          const targetKey = `${train.train_num || 'trk'}:${cam.cam_id}:${isPassby ? 'pass' : 'app'}`;
+          if (targetKey !== lastDirectorTarget) {
+            lastDirectorTarget = targetKey;
+            const camLat = cam.lat || (camData.find(c => (c.properties && c.properties.cam_id === cam.cam_id))?.geometry?.coordinates?.[1]);
+            const camLon = cam.lon || (camData.find(c => (c.properties && c.properties.cam_id === cam.cam_id))?.geometry?.coordinates?.[0]);
+            if (camLat && camLon && map) {
+              const zoomLevel = isPassby ? 14 : 12;
+              map.flyTo([camLat, camLon], zoomLevel, { duration: 1.5 });
+            }
+          }
+        } else {
+          if (hud) hud.classList.add('hidden');
+        }
+      } catch (e) {
+        console.warn('Auto-Director evaluation error:', e);
+      }
     }
 
     // Load Trains & Proximity
@@ -418,11 +535,21 @@
           badge.classList.add('hidden');
         }
 
-        // Trigger audio chime if a train is approaching within 3 miles
-        const imminent = proximityEvents.find(e => e.trajectory === 'approaching' && e.distance_miles <= 3.0);
+        // Dual-Tier Audio Alerts
+        const passby = proximityEvents.find(e => e.distance_miles <= 1.0);
+        if (passby && passby.train.train_num !== lastPassbyTrain) {
+          lastPassbyTrain = passby.train.train_num;
+          playPassbyChime();
+        }
+
+        const imminent = proximityEvents.find(e => e.trajectory === 'approaching' && e.distance_miles <= 3.0 && e.distance_miles > 1.0);
         if (imminent && imminent.train.train_num !== lastAlertedTrain) {
           lastAlertedTrain = imminent.train.train_num;
           playApproachChime();
+        }
+
+        if (autoDirectorEnabled) {
+          await evaluateAutoDirector();
         }
 
         renderTrains();

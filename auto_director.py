@@ -38,6 +38,10 @@ def score_encounter(event: Dict[str, Any]) -> float:
     if trajectory == "approaching" and dist <= 3.0:
         score += 60.0
 
+    # Immediate pass-by / CPA threshold (< 1.0 mile)
+    if dist <= 1.0:
+        score += 80.0
+
     # High-speed action bonus
     if speed >= 50.0:
         score += 15.0
@@ -78,6 +82,7 @@ def select_director_camera(proximity_events: List[Dict[str, Any]], timestamp: Op
                 "priority_score": top_score,
                 "camera": cam,
                 "encounter": best_event,
+                "is_passby": dist <= 1.0,
                 "reason": reason,
                 "timestamp": now,
             }
@@ -92,6 +97,7 @@ def select_director_camera(proximity_events: List[Dict[str, Any]], timestamp: Op
         "priority_score": 0.0,
         "camera": scenic_cam,
         "encounter": None,
+        "is_passby": False,
         "reason": f"No imminent rail encounters; auto-patrolling scenic landmark: {scenic_cam['name']}",
         "timestamp": now,
     }
