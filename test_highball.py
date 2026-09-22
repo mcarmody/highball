@@ -1,5 +1,6 @@
 """Test suite for Highball spatial engine, webcam lookup, and API endpoints."""
 
+import os
 import pytest
 from fastapi.testclient import TestClient
 
@@ -278,6 +279,20 @@ def test_breadcrumbs_endpoint(client):
     update_breadcrumbs(teleport_features, now=1045.0)
     # The jump from -104.95 to -90.0 should be rejected, preserving history length at 2
     assert len(teleport_features[0]["properties"]["breadcrumbs"]) == 2
+
+
+def test_index_html_invariants():
+    """Verify frontend static contract: essential constants and markers are defined."""
+    html_path = os.path.join(os.path.dirname(__file__), "index.html")
+    assert os.path.exists(html_path)
+    with open(html_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    # Regression check: ICON_REST_OFFSET_DEG must be defined to prevent NaN/ReferenceError in createTrainIcon
+    assert "const ICON_REST_OFFSET_DEG" in html
+    assert "createTrainIcon" in html
+    assert "renderTrains" in html
+
 
 
 

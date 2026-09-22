@@ -270,6 +270,7 @@
       // off from the train's actual direction of travel. Correct for the
       // icon's own rest angle so rotate(0) heading (due north) renders
       // as pointing straight up on the map.
+      const ICON_REST_OFFSET_DEG = 45;
       // Convert compass strings ('S', 'NE', etc.) or numeric degrees to true heading
       const CARDINAL_MAP = {
         'N': 0, 'NNE': 22.5, 'NE': 45, 'ENE': 67.5,
