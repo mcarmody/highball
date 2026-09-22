@@ -753,6 +753,94 @@ def test_index_html_fleet_pills_invariants():
     assert ".filter-btn[data-filter]" in html
 
 
+def test_calculate_fleet_counts_and_api_trains_counts(client, monkeypatch):
+    """Verify /api/trains returns summary fleet counts for badges even under scoped mode filters."""
+    dummy_features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-71.05, 42.36]},
+            "properties": {"id": "MBTA_Red_1", "train_num": "Red-1", "mode": "subway", "speed_mph": 25.0}
+        },
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-71.10, 42.35]},
+            "properties": {"id": "MBTA_CR_101", "train_num": "101", "mode": "commuter_rail", "speed_mph": 65.0}
+        },
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-71.06, 42.35]},
+            "properties": {"id": "Amtrak_2150", "train_num": "2150", "mode": "intercity_rail", "speed_mph": 95.0}
+        },
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-71.00, 42.40]},
+            "properties": {"id": "Flight_DAL100", "train_num": "DAL100", "mode": "flight", "speed_mph": 450.0}
+        },
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-71.02, 42.38]},
+            "properties": {"id": "MBTA_Bus_1", "train_num": "Bus-1", "mode": "bus", "speed_mph": 15.0}
+        }
+    ]
+    monkeypatch.setattr("server.fetch_live_train_geojson", lambda: {
+        "type": "FeatureCollection",
+        "timestamp": 1726913800,
+        "total_active": 5,
+        "features": dummy_features
+    })
+
+    # Query with mode=ground: features should be 4 (subway, commuter, amtrak, bus),
+    # but counts must summarize all 5 vehicles including flight and highspeed count.
+    resp = client.get("/api/trains?mode=ground")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_active"] == 4
+    assert len(data["features"]) == 4
+
+    assert "counts" in data
+    counts = data["counts"]
+    assert counts["all"] == 5
+    assert counts["ground"] == 4
+    assert counts["flight"] == 1
+    assert counts["amtrak"] == 1
+    assert counts["subway"] == 1
+    assert counts["commuter"] == 1
+    assert counts["bus"] == 1
+    assert counts["highspeed"] == 3  # 65, 95, 450 mph
+
+
+def test_opensky_429_cooldown_backoff(monkeypatch):
+    """Verify OpenSky 429 rate-limit sets cache timestamp forward by 90s to avoid hammering API."""
+    import time
+    from unittest.mock import MagicMock
+    import server
+
+    # Reset cache
+    server._flight_cache["timestamp"] = 0.0
+    server._flight_cache["features"] = [{"id": "cached_flight"}]
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 429
+    monkeypatch.setattr("requests.get", lambda *args, **kwargs: mock_resp)
+
+    now_before = time.time()
+    res = server._fetch_flights()
+    assert res == [{"id": "cached_flight"}]
+    # Cache timestamp should be pushed ~90s into the future
+    assert server._flight_cache["timestamp"] >= now_before + 85.0
+
+
+def test_index_html_telemetry_mode_query():
+    """Verify index.html sends ?mode= to /api/trains and binds server counts."""
+    from server import INDEX_HTML
+    assert INDEX_HTML.exists()
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "fetch(`/api/trains${queryMode}`)" in html
+    assert "latestFleetCounts" in html
+
+
+
 
 
 

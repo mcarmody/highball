@@ -282,6 +282,7 @@
     let historyEvents = [];
     let currentSidebarTab = 'active';
     let currentFilter = 'ground';
+    let latestFleetCounts = null;
     let sidebarOpen = false;
 
     // Mobile Bottom Sheet (Ops Radar Proximity Ledger)
@@ -862,8 +863,9 @@
     // Load Trains & Proximity
     async function refreshTelemetry() {
       try {
+        const queryMode = currentFilter && currentFilter !== 'all' ? `?mode=${encodeURIComponent(currentFilter)}` : '';
         const [trainsResp, proxResp, histResp] = await Promise.all([
-          fetch('/api/trains'),
+          fetch(`/api/trains${queryMode}`),
           fetch('/api/proximity?max_miles=15.0'),
           fetch('/api/encounters/history?limit=25')
         ]);
@@ -873,6 +875,9 @@
         const histData = histResp.ok ? await histResp.json() : [];
 
         trainData = trainsGeo.features || [];
+        if (trainsGeo.counts) {
+          latestFleetCounts = trainsGeo.counts;
+        }
         proximityEvents = proxData.events || [];
         historyEvents = Array.isArray(histData) ? histData : [];
 
@@ -928,7 +933,7 @@
         proximityEvents.filter(e => e.trajectory === 'approaching').map(e => e.train.train_num)
       );
 
-      // Tally live fleet distribution
+      // Tally live fleet distribution: prefer server summary counts, fallback to local
       let countGround = 0;
       let countAmtrak = 0;
       let countSubway = 0;
@@ -936,32 +941,44 @@
       let countBus = 0;
       let countFlight = 0;
       let countHighspeed = 0;
+      let countAll = trainData.length;
 
-      trainData.forEach(t => {
-        const m = t.properties.mode;
-        if (m === 'intercity_rail') {
-          countAmtrak++;
-          countGround++;
-        } else if (m === 'subway' || m === 'light_rail') {
-          countSubway++;
-          countGround++;
-        } else if (m === 'commuter_rail') {
-          countCommuter++;
-          countGround++;
-        } else if (m === 'bus') {
-          countBus++;
-          countGround++;
-        } else if (m === 'flight') {
-          countFlight++;
-        }
+      if (latestFleetCounts) {
+        countGround = latestFleetCounts.ground || 0;
+        countAmtrak = latestFleetCounts.amtrak || 0;
+        countSubway = latestFleetCounts.subway || 0;
+        countCommuter = latestFleetCounts.commuter || 0;
+        countBus = latestFleetCounts.bus || 0;
+        countFlight = latestFleetCounts.flight || 0;
+        countHighspeed = latestFleetCounts.highspeed || 0;
+        countAll = latestFleetCounts.all || trainData.length;
+      } else {
+        trainData.forEach(t => {
+          const m = t.properties.mode;
+          if (m === 'intercity_rail') {
+            countAmtrak++;
+            countGround++;
+          } else if (m === 'subway' || m === 'light_rail') {
+            countSubway++;
+            countGround++;
+          } else if (m === 'commuter_rail') {
+            countCommuter++;
+            countGround++;
+          } else if (m === 'bus') {
+            countBus++;
+            countGround++;
+          } else if (m === 'flight') {
+            countFlight++;
+          }
 
-        if ((t.properties.speed_mph || 0) >= 60) countHighspeed++;
-      });
+          if ((t.properties.speed_mph || 0) >= 60) countHighspeed++;
+        });
+      }
 
       const elGround = document.getElementById('count-ground');
       if (elGround) elGround.innerText = countGround.toLocaleString();
       const elAll = document.getElementById('count-all');
-      if (elAll) elAll.innerText = trainData.length.toLocaleString();
+      if (elAll) elAll.innerText = countAll.toLocaleString();
       const elAmtrak = document.getElementById('count-amtrak');
       if (elAmtrak) elAmtrak.innerText = countAmtrak.toLocaleString();
       const elSubway = document.getElementById('count-subway');
@@ -1242,6 +1259,7 @@
         }
       });
       renderTrains();
+      refreshTelemetry();
     }
 
     function resetMapView() {

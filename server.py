@@ -271,10 +271,12 @@ def _fetch_flights() -> List[Dict[str, Any]]:
             _flight_cache["features"] = features
             return features
         elif resp.status_code == 429:
-            print("[Highball] OpenSky 429 rate limit hit, returning cached flights")
+            print("[Highball] OpenSky 429 rate limit hit, applying 90s backoff and returning cached flights")
+            _flight_cache["timestamp"] = now + 90.0
             return _flight_cache["features"]
     except Exception as exc:
         print(f"[Highball] OpenSky flight fetch warning: {exc}")
+        _flight_cache["timestamp"] = now + 30.0
 
     return _flight_cache["features"]
 
@@ -383,14 +385,51 @@ async def get_corridors():
 
 
 
+def calculate_fleet_counts(features: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Tallies fleet counts across all transit modes and highspeed vehicles."""
+    counts = {
+        "ground": 0,
+        "amtrak": 0,
+        "subway": 0,
+        "commuter": 0,
+        "bus": 0,
+        "flight": 0,
+        "all": len(features),
+        "highspeed": 0,
+    }
+    for f in features:
+        props = f.get("properties", {})
+        m = props.get("mode", "")
+        if m == "intercity_rail":
+            counts["amtrak"] += 1
+            counts["ground"] += 1
+        elif m in ["subway", "light_rail"]:
+            counts["subway"] += 1
+            counts["ground"] += 1
+        elif m == "commuter_rail":
+            counts["commuter"] += 1
+            counts["ground"] += 1
+        elif m == "bus":
+            counts["bus"] += 1
+            counts["ground"] += 1
+        elif m == "flight":
+            counts["flight"] += 1
+
+        if props.get("speed_mph", 0.0) >= 60.0:
+            counts["highspeed"] += 1
+    return counts
+
+
 @app.get("/api/trains")
 async def get_trains(
     agency: Optional[str] = Query(default=None),
-    mode: Optional[str] = Query(default=None, description="Filter by transit mode: intercity_rail, commuter_rail, subway, light_rail, or all"),
+    mode: Optional[str] = Query(default=None, description="Filter by transit mode: intercity_rail, commuter_rail, subway, light_rail, flight, ground, or all"),
 ):
     """Returns live GeoJSON FeatureCollection of active trains, optionally filtered by agency and/or mode."""
     geojson = fetch_live_train_geojson()
-    filtered = geojson.get("features", [])
+    all_features = geojson.get("features", [])
+    counts = calculate_fleet_counts(all_features)
+    filtered = all_features
 
     if agency and agency.lower() != "all":
         filtered = [f for f in filtered if f["properties"].get("agency", "").lower() == agency.lower()]
@@ -405,6 +444,10 @@ async def get_trains(
             filtered = [f for f in filtered if f["properties"].get("mode", "") in ["subway", "light_rail"]]
         elif mode_target in ["amtrak", "intercity"]:
             filtered = [f for f in filtered if f["properties"].get("mode", "") == "intercity_rail"]
+        elif mode_target in ["flight", "flights"]:
+            filtered = [f for f in filtered if f["properties"].get("mode", "") == "flight"]
+        elif mode_target in ["highspeed", "fast"]:
+            filtered = [f for f in filtered if f["properties"].get("speed_mph", 0.0) >= 60.0]
         else:
             filtered = [f for f in filtered if f["properties"].get("mode", "").lower() == mode_target]
 
@@ -412,6 +455,7 @@ async def get_trains(
         "type": "FeatureCollection",
         "timestamp": geojson.get("timestamp"),
         "total_active": len(filtered),
+        "counts": counts,
         "features": filtered,
     }
 
