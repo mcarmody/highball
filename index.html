@@ -974,16 +974,17 @@
               const zoomLevel = isPassby ? 14 : 12;
               map.flyTo([camLat, camLon], zoomLevel, { duration: 1.5 });
             }
-          // Auto-Sync floating PIP player if active
-          if (pipActive && pipAutoSync) {
-            openPipForCam(
-              safeCamName,
-              safeCamLoc,
-              safeEmbedUrl,
-              safeProvider,
-              safeStreamUrl,
-              isPassby ? `PASS-BY: Train #${train.train_num || ''}` : `Intercepting Train #${train.train_num || ''} (${dist} mi)`
-            );
+            // Auto-Sync floating PIP player if active
+            if (pipActive && pipAutoSync) {
+              openPipForCam(
+                safeCamName,
+                safeCamLoc,
+                safeEmbedUrl,
+                safeProvider,
+                safeStreamUrl,
+                isPassby ? `PASS-BY: Train #${train.train_num || ''}` : `Intercepting Train #${train.train_num || ''} (${dist} mi)`
+              );
+            }
           }
         } else {
           if (hud) hud.classList.add('hidden');
