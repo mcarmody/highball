@@ -1,6 +1,8 @@
 """Test suite for Highball spatial engine, webcam lookup, and API endpoints."""
 
 import os
+import time
+from collections import deque
 import pytest
 from fastapi.testclient import TestClient
 
@@ -11,7 +13,34 @@ from cam_lookup import (
     find_nearby_cameras,
     haversine_miles,
 )
-from server import app
+from server import app, _train_cache
+
+
+@pytest.fixture(autouse=True)
+def warm_cache():
+    """Ensure in-memory transit cache is pre-warmed so tests run hermetically without external HTTP timeouts."""
+    if not _train_cache["geojson"]:
+        _train_cache["timestamp"] = time.time() + 86400.0
+        _train_cache["geojson"] = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [-78.4842, 40.48]},
+                    "properties": {
+                        "train_num": "42",
+                        "route": "Pennsylvanian",
+                        "speed_mph": 45.0,
+                        "heading": 0.0,
+                        "dest": "New York",
+                        "timely": "On Time",
+                        "agency": "Amtrak",
+                        "mode": "intercity_rail",
+                        "mode_label": "Intercity Rail",
+                    },
+                }
+            ],
+        }
 
 
 @pytest.fixture
@@ -81,17 +110,35 @@ def test_root_serves_html(client):
     assert "Project Highball" in resp.text
 
 
-def test_proximity_endpoint_structure_and_filter(client):
+def test_proximity_endpoint_structure_and_filter(client, monkeypatch):
+    dummy_trains = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-78.4842, 40.48]},
+                "properties": {
+                    "train_num": "42",
+                    "route": "Pennsylvanian",
+                    "speed_mph": 45.0,
+                    "heading": 0.0,
+                    "dest": "New York",
+                    "timely": "On Time",
+                    "mode": "intercity_rail",
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr("server.fetch_live_train_geojson", lambda: dummy_trains)
     resp = client.get("/api/proximity?max_miles=5.0&trajectory=approaching")
-    assert resp.status_code in [200, 502]
-    if resp.status_code == 200:
-        data = resp.json()
-        assert "events" in data
-        assert "total_matches" in data
-        assert data["max_miles_threshold"] == 5.0
-        assert data["filter_trajectory"] == "approaching"
-        for ev in data["events"]:
-            assert ev["trajectory"] == "approaching"
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "events" in data
+    assert "total_matches" in data
+    assert data["max_miles_threshold"] == 5.0
+    assert data["filter_trajectory"] == "approaching"
+    for ev in data["events"]:
+        assert ev["trajectory"] == "approaching"
 
 
 def test_gtfs_rt_parser():
@@ -156,14 +203,42 @@ def test_gtfs_rt_parser_stable_id_without_trip_object():
     assert id_2 == "Metra_9042"
 
 
-def test_get_trains_agency_filter(client):
+def test_get_trains_agency_filter(client, monkeypatch):
+    dummy_trains = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-78.48, 40.50]},
+                "properties": {
+                    "train_num": "42",
+                    "route": "Pennsylvanian",
+                    "speed_mph": 45.0,
+                    "agency": "Amtrak",
+                    "mode": "intercity_rail",
+                },
+            },
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-71.05, 42.36]},
+                "properties": {
+                    "train_num": "100",
+                    "route": "Red Line",
+                    "speed_mph": 30.0,
+                    "agency": "MBTA",
+                    "mode": "subway",
+                },
+            },
+        ],
+    }
+    monkeypatch.setattr("server.fetch_live_train_geojson", lambda: dummy_trains)
     resp = client.get("/api/trains?agency=Amtrak")
-    assert resp.status_code in [200, 502]
-    if resp.status_code == 200:
-        data = resp.json()
-        assert "features" in data
-        for f in data["features"]:
-            assert f["properties"]["agency"] == "Amtrak"
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "features" in data
+    assert len(data["features"]) == 1
+    for f in data["features"]:
+        assert f["properties"]["agency"] == "Amtrak"
 
 
 def test_corridors_endpoint(client):
@@ -1566,6 +1641,250 @@ def test_index_html_stream_vision_invariants():
     assert "addEventListener('vision_detection'" in html
     assert "Trackside Vision Detection" in html
     assert "HLS 1080p · CV Vision Active" in html
+
+
+def test_sqlite_db_initialization_and_crud(tmp_path):
+    """Verify SQLite initialization, WAL mode, CRUD, indexing, and analytics."""
+    import db
+    db_file = tmp_path / "test_highball.db"
+    db.init_db(db_file)
+
+    # Verify connection & WAL mode
+    conn = db.get_db_connection(db_file)
+    row = conn.execute("PRAGMA journal_mode;").fetchone()
+    assert row[0].lower() == "wal"
+    conn.close()
+
+    # 1. Encounters CRUD
+    t0 = time.time()
+    enc1 = {
+        "encounter_id": "enc_3_cam_perryville_01",
+        "train_num": "3",
+        "route": "Southwest Chief",
+        "camera_id": "cam_perryville_amtrak",
+        "camera_name": "Perryville Amtrak Station",
+        "location": "Perryville, MD",
+        "start_time": t0,
+        "last_seen": t0 + 30,
+        "end_time": t0 + 60,
+        "duration_seconds": 60.0,
+        "closest_distance_miles": 0.25,
+        "peak_speed_mph": 79.5,
+        "status": "completed",
+        "vision_confirmed": True,
+        "consist": {"total_units": 9, "total_axles": 36},
+        "defect_report": {"detector": "HBD-MP60", "axles": 36},
+    }
+    assert db.save_encounter(enc1, db_path=db_file) is True
+
+    # Retrieve by ID
+    loaded_enc = db.get_encounter("enc_3_cam_perryville_01", db_path=db_file)
+    assert loaded_enc is not None
+    assert loaded_enc["train_num"] == "3"
+    assert loaded_enc["vision_confirmed"] is True
+    assert loaded_enc["consist"]["total_units"] == 9
+    assert loaded_enc["defect_report"]["detector"] == "HBD-MP60"
+
+    # Query with filters
+    q_cams = db.query_encounters(camera_id="cam_perryville_amtrak", db_path=db_file)
+    assert len(q_cams) == 1
+    q_train = db.query_encounters(train_num="3", db_path=db_file)
+    assert len(q_train) == 1
+    q_vision = db.query_encounters(vision_confirmed=True, db_path=db_file)
+    assert len(q_vision) == 1
+
+    # Analytics from DB
+    analytics = db.get_encounter_analytics_db(db_path=db_file)
+    assert analytics["total_completed"] == 1
+    assert analytics["peak_speed_mph"] == 79.5
+    assert analytics["fastest_train"]["train_num"] == "3"
+    assert analytics["closest_cpa_miles"] == 0.25
+
+    # 2. Vision Detections CRUD
+    vis1 = {
+        "frame_id": "frm_cam_perryville_1001",
+        "timestamp": t0 - 10,
+        "cam_id": "cam_perryville_amtrak",
+        "camera_name": "Perryville Amtrak Station",
+        "scene_classification": "TRAIN_IN_FRAME",
+        "track_status": "OCCUPIED",
+        "train_present": True,
+        "train_summary": {
+            "train_num": "3",
+            "route": "Southwest Chief",
+            "agency": "Amtrak",
+            "speed_mph": 79.5,
+            "total_consist_units": 9,
+            "total_axles": 36,
+        },
+        "total_bounding_boxes": 3,
+        "detected_units": [{"unit_id": "ALC-42-301", "name": "Siemens Charger"}],
+        "optical_speed_estimate_mph": 78.0,
+        "optical_direction": "Eastbound",
+        "lead_unit": "Siemens Charger",
+        "lead_cab_number": "AMTK 3",
+        "inference_time_ms": 22.5,
+    }
+    assert db.save_vision_detection(vis1, db_path=db_file) is True
+
+    loaded_vis = db.get_vision_detection("frm_cam_perryville_1001", db_path=db_file)
+    assert loaded_vis is not None
+    assert loaded_vis["cam_id"] == "cam_perryville_amtrak"
+    assert loaded_vis["train_present"] is True
+    assert len(loaded_vis["detected_units"]) == 1
+
+    q_vis = db.query_vision_detections(cam_id="cam_perryville_amtrak", db_path=db_file)
+    assert len(q_vis) == 1
+
+    # 3. Breadcrumbs CRUD
+    assert db.save_breadcrumb("3", -76.07, 39.55, speed_mph=79.5, heading=65.0, timestamp=t0 - 10, db_path=db_file) is True
+    assert db.save_breadcrumb("3", -76.06, 39.56, speed_mph=80.0, heading=65.0, timestamp=t0 - 5, db_path=db_file) is True
+
+    crumbs = db.get_breadcrumbs_for_train("3", db_path=db_file)
+    assert len(crumbs) == 2
+    assert crumbs[0] == [-76.07, 39.55]
+    assert crumbs[1] == [-76.06, 39.56]
+
+    all_crumbs = db.load_all_recent_breadcrumbs(max_age_seconds=3600.0, db_path=db_file)
+    assert "3" in all_crumbs
+    assert len(all_crumbs["3"]) == 2
+
+    # 4. DB Stats
+    stats = db.get_db_stats(db_path=db_file)
+    assert stats["status"] == "ready"
+    assert stats["total_encounters"] == 1
+    assert stats["completed_encounters"] == 1
+    assert stats["total_vision_detections"] == 1
+    assert stats["total_breadcrumbs"] == 2
+    assert stats["db_size_bytes"] > 0
+
+    # 5. Pruning
+    pruned = db.prune_db(max_age_days=0.0, db_path=db_file)  # prune everything older than right now
+    assert pruned["deleted_encounters"] >= 1
+    assert pruned["deleted_vision_detections"] >= 1
+    assert pruned["deleted_breadcrumbs"] >= 2
+
+
+def test_sqlite_persistence_and_restart_survivability(client, monkeypatch):
+    """Verify end-to-end SQLite persistence across server restarts and in-memory wipes."""
+    from server import (
+        encounter_tracker,
+        stream_vision_engine,
+        _breadcrumb_history,
+        _breadcrumb_last_seen,
+        hydrate_breadcrumbs_from_db,
+    )
+    import db
+    import server
+    # Mock transit fetch to avoid slow external HTTP requests during test
+    monkeypatch.setattr(server, "fetch_live_train_geojson", lambda: {"type": "FeatureCollection", "features": []})
+
+    # Clear tables and in-memory tracker for clean test isolation
+    db.clear_all_tables()
+    encounter_tracker.history.clear()
+    encounter_tracker.active_sessions.clear()
+    encounter_tracker.persist_db = True
+    stream_vision_engine.detector.persist_db = True
+
+    # 1. Verify /health and /api/db/stats expose database metrics
+    resp_health = client.get("/health")
+    assert resp_health.status_code == 200
+    health_data = resp_health.json()
+    assert "database" in health_data
+    assert health_data["database"]["status"] in ("ready", "uninitialized")
+
+    resp_db = client.get("/api/db/stats")
+    assert resp_db.status_code == 200
+    db_stats = resp_db.json()
+    assert db_stats["status"] == "ready"
+    assert "total_encounters" in db_stats
+
+    # 2. Trigger on-demand vision sample and confirm it writes to SQLite
+    resp_sample = client.post("/api/vision/sample?cam_id=cam_horseshoe_curve&train_num=42")
+    assert resp_sample.status_code == 200
+    sample_frame = resp_sample.json()
+    frame_id = sample_frame["frame_id"]
+
+    # Verify frame lookup via API
+    resp_frame = client.get(f"/api/vision/detections/frame/{frame_id}")
+    assert resp_frame.status_code == 200
+    assert resp_frame.json()["frame_id"] == frame_id
+
+    # 3. Simulate an encounter lifecycle in encounter_tracker
+    t_now = time.time()
+    mock_events = [
+        {
+            "train": {"train_num": "49", "route": "Lake Shore Limited", "speed_mph": 58.0},
+            "camera": {"cam_id": "cam_rochelle_diamond", "name": "Rochelle Railroad Park", "location": "Rochelle, IL"},
+            "distance_miles": 1.8,
+            "trajectory": "approaching",
+        }
+    ]
+    encounter_tracker.update(mock_events, timestamp=t_now)
+    actives = encounter_tracker.get_active_encounters()
+    assert len(actives) >= 1
+    active_enc = next(e for e in actives if e["train_num"] == "49")
+    enc_id = active_enc["encounter_id"]
+
+    # Encounter lookup endpoint
+    resp_enc = client.get(f"/api/encounters/{enc_id}")
+    assert resp_enc.status_code == 200
+    assert resp_enc.json()["encounter_id"] == enc_id
+
+    # Complete the encounter (train moves > 5 miles)
+    encounter_tracker.update([], timestamp=t_now + 180.0)
+
+    # Add a breadcrumb to memory
+    _breadcrumb_history["49"] = deque([[-89.06, 41.92], [-89.05, 41.93]], maxlen=15)
+    _breadcrumb_last_seen["49"] = t_now
+    db.save_breadcrumb("49", -89.06, 41.92, speed_mph=58.0, heading=90.0, timestamp=t_now)
+    db.save_breadcrumb("49", -89.05, 41.93, speed_mph=58.0, heading=90.0, timestamp=t_now + 15)
+
+    # 4. SIMULATE SERVER CRASH / RESTART: Wipe all in-memory structures completely
+    encounter_tracker.history.clear()
+    encounter_tracker.active_sessions.clear()
+    stream_vision_engine.detector.history.clear()
+    stream_vision_engine.detector.total_frames_processed = 0
+    stream_vision_engine.detector.total_detections_logged = 0
+    _breadcrumb_history.clear()
+    _breadcrumb_last_seen.clear()
+
+    assert len(encounter_tracker.history) == 0
+    assert len(stream_vision_engine.detector.history) == 0
+    assert len(_breadcrumb_history) == 0
+
+    # 5. Verify SQLite retrieval works directly after memory wipe
+    resp_hist_after_wipe = client.get("/api/encounters/history")
+    assert resp_hist_after_wipe.status_code == 200
+    hist_items = resp_hist_after_wipe.json()
+    assert len(hist_items) >= 1
+    assert any(e["encounter_id"] == enc_id for e in hist_items)
+
+    resp_crumbs_after_wipe = client.get("/api/breadcrumbs?train_id=49")
+    assert resp_crumbs_after_wipe.status_code == 200
+    crumb_features = resp_crumbs_after_wipe.json()["features"]
+    assert len(crumb_features) == 1
+    assert len(crumb_features[0]["geometry"]["coordinates"]) == 2
+
+    # 6. Hydration test: reload from DB and confirm memory structures are populated
+    encounter_tracker.hydrate_from_db()
+    assert len(encounter_tracker.history) >= 1
+    assert any(e["encounter_id"] == enc_id for e in encounter_tracker.history)
+
+    stream_vision_engine.detector.hydrate_from_db()
+    assert len(stream_vision_engine.detector.history) >= 1
+
+    hydrate_breadcrumbs_from_db()
+    assert "49" in _breadcrumb_history
+    assert len(_breadcrumb_history["49"]) == 2
+
+    # 7. Test maintenance prune endpoint
+    resp_prune = client.post("/api/maintenance/prune?max_age_days=30.0")
+    assert resp_prune.status_code == 200
+    prune_data = resp_prune.json()
+    assert prune_data["status"] == "success"
+    assert "pruned" in prune_data
+
 
 
 

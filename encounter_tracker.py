@@ -8,20 +8,60 @@ Tracks active camera encounters and persists completed flybys to a ring buffer:
 
 import time
 from collections import deque
-from typing import Any, Dict, List, Optional
-
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from consist_detector import synthesize_consist_for_train, generate_defect_report
 from stream_vision import stream_vision_engine
 
 
 class EncounterTracker:
-    def __init__(self, max_history: int = 50, encounter_radius_miles: float = 5.0):
+    def __init__(
+        self,
+        max_history: int = 50,
+        encounter_radius_miles: float = 5.0,
+        persist_db: bool = False,
+        db_path: Optional[Union[Path, str]] = None,
+    ):
         self.max_history = max_history
         self.radius = encounter_radius_miles
+        self.persist_db = persist_db
+        self.db_path = db_path
         # Key: f"{train_num}:{cam_id}" -> active session dict
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
         self.history: deque = deque(maxlen=max_history)
+        if self.persist_db:
+            self.hydrate_from_db()
+
+    def hydrate_from_db(self):
+        """Hydrates completed encounters and active sessions from SQLite."""
+        try:
+            import db
+            completed = db.query_encounters(
+                limit=self.max_history,
+                status="completed",
+                order="asc",
+                db_path=self.db_path,
+            )
+            self.history.clear()
+            for enc in completed:
+                self.history.append(enc)
+
+            now = time.time()
+            actives = db.query_encounters(
+                limit=50,
+                status="in_progress",
+                order="desc",
+                db_path=self.db_path,
+            )
+            for enc in actives:
+                if now - enc.get("last_seen", 0) <= 300.0:
+                    train_num = str(enc.get("train_num", "unknown"))
+                    cam_id = str(enc.get("camera_id", "unknown"))
+                    key = self._session_key(train_num, cam_id)
+                    self.active_sessions[key] = enc
+        except Exception:
+            pass
 
     def _session_key(self, train_num: str, cam_id: str) -> str:
         return f"{train_num}:{cam_id}"
@@ -97,6 +137,12 @@ class EncounterTracker:
                 }
                 self.active_sessions[key] = sess
                 new_sessions.append(sess)
+                if self.persist_db:
+                    try:
+                        import db
+                        db.save_encounter(sess, db_path=self.db_path)
+                    except Exception:
+                        pass
             else:
                 # Update existing session
                 sess = self.active_sessions[key]
@@ -108,6 +154,12 @@ class EncounterTracker:
                 if dist <= 2.5 and st and not sess.get("vision_confirmed"):
                     sess["vision_confirmed"] = True
                     sess["vision_detection"] = vision_event
+                if self.persist_db:
+                    try:
+                        import db
+                        db.save_encounter(sess, db_path=self.db_path)
+                    except Exception:
+                        pass
 
         # Finalize sessions that left the proximity zone or timed out (> 5 min unseen)
         completed_keys = []
@@ -119,6 +171,12 @@ class EncounterTracker:
                 self.history.append(sess)
                 completed_sessions.append(sess)
                 completed_keys.append(key)
+                if self.persist_db:
+                    try:
+                        import db
+                        db.save_encounter(sess, db_path=self.db_path)
+                    except Exception:
+                        pass
 
         for k in completed_keys:
             del self.active_sessions[k]
@@ -127,6 +185,19 @@ class EncounterTracker:
 
     def get_recent_history(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Returns completed encounter history ordered newest-first."""
+        if self.persist_db:
+            try:
+                import db
+                records = db.query_encounters(
+                    limit=limit,
+                    status="completed",
+                    order="desc",
+                    db_path=self.db_path,
+                )
+                if records:
+                    return records
+            except Exception:
+                pass
         return list(self.history)[-limit:][::-1]
 
     def get_active_encounters(self) -> List[Dict[str, Any]]:
@@ -139,6 +210,15 @@ class EncounterTracker:
         total_completed = len(all_completed)
 
         if total_completed == 0:
+            if self.persist_db:
+                try:
+                    import db
+                    db_analytics = db.get_encounter_analytics_db(db_path=self.db_path)
+                    if db_analytics.get("total_completed", 0) > 0:
+                        db_analytics["active_count"] = len(self.active_sessions)
+                        return db_analytics
+                except Exception:
+                    pass
             return {
                 "total_completed": 0,
                 "active_count": len(self.active_sessions),

@@ -37,6 +37,7 @@ from gtfs_rt_parser import parse_gtfs_rt_vehicle_positions, parse_mbta_v3_vehicl
 from opensky_parser import parse_opensky_states
 from consist_detector import synthesize_consist_for_train, generate_defect_report
 from stream_vision import stream_vision_engine
+import db
 
 BASE_DIR = Path(__file__).parent
 INDEX_HTML = BASE_DIR / "index.html"
@@ -48,7 +49,10 @@ MBTA_API_KEY = os.getenv("MBTA_API_KEY", "")
 SF_511_API_KEY = os.getenv("SF_511_API_KEY", "5727dbc7-a646-44b2-b8e5-b5ffe95f9cea")
 TRANSITLAND_API_KEY = os.getenv("TRANSITLAND_API_KEY", "iwa_live_tlv2api_280ad7fdff73b31d7326fa84725f34428d0a9cd1aa7209621Z7Vl4")
 
-encounter_tracker = EncounterTracker(max_history=50, encounter_radius_miles=5.0)
+# Initialize SQLite database engine
+db.init_db()
+
+encounter_tracker = EncounterTracker(max_history=50, encounter_radius_miles=5.0, persist_db=True)
 
 app = FastAPI(
     title="Highball Railfan Transit & Webcam Engine",
@@ -97,6 +101,22 @@ _breadcrumb_history: Dict[str, deque] = {}
 _breadcrumb_last_seen: Dict[str, float] = {}
 
 
+def hydrate_breadcrumbs_from_db():
+    """Restores active breadcrumb trails from SQLite upon server startup."""
+    global _breadcrumb_history, _breadcrumb_last_seen
+    try:
+        loaded = db.load_all_recent_breadcrumbs(max_age_seconds=1800.0, limit_per_train=15)
+        now = time.time()
+        for train_key, coords in loaded.items():
+            _breadcrumb_history[train_key] = deque(coords, maxlen=15)
+            _breadcrumb_last_seen[train_key] = now
+    except Exception as e:
+        print(f"[db] breadcrumb hydration error: {e}")
+
+
+hydrate_breadcrumbs_from_db()
+
+
 def update_breadcrumbs(features: List[Dict[str, Any]], now: float):
     """Updates historical GPS breadcrumb trails for active trains with geographic sanitization."""
     global _breadcrumb_history, _breadcrumb_last_seen
@@ -135,6 +155,20 @@ def update_breadcrumbs(features: List[Dict[str, Any]], now: float):
 
         if not is_teleport and (not history or (abs(history[-1][0] - lon) > 0.0001 or abs(history[-1][1] - lat) > 0.0001)):
             history.append([lon, lat])
+            # Persist coordinate fix to SQLite
+            try:
+                db.save_breadcrumb(
+                    train_key=key,
+                    lon=lon,
+                    lat=lat,
+                    speed_mph=float(props.get("speed_mph", 0.0)),
+                    heading=float(props.get("heading", 0.0) or 0.0),
+                    agency=str(props.get("agency", "")),
+                    route=str(props.get("route", "")),
+                    timestamp=now,
+                )
+            except Exception:
+                pass
 
         props["breadcrumbs"] = list(history)
 
@@ -434,6 +468,23 @@ async def get_breadcrumbs(train_id: Optional[str] = None):
                     "points_count": len(trail),
                 }
             })
+
+    # If specific train requested but not found in active memory, query SQLite
+    if train_id and not features:
+        db_coords = db.get_breadcrumbs_for_train(train_id, limit=15)
+        if len(db_coords) >= 2:
+            features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": db_coords,
+                },
+                "properties": {
+                    "train_id": train_id,
+                    "points_count": len(db_coords),
+                }
+            })
+
     return {"type": "FeatureCollection", "total_trails": len(features), "features": features}
 
 
@@ -450,6 +501,7 @@ async def health():
     """System health check and tracking statistics."""
     train_count = len(_train_cache["geojson"]["features"]) if _train_cache["geojson"] else 0
     stream_sum = stream_vision_engine.ingest.get_summary()
+    db_stats = db.get_db_stats()
     return {
         "status": "online",
         "service": "highball-spatial-engine",
@@ -459,7 +511,14 @@ async def health():
         "active_sse_subscribers": len(subscribers),
         "active_hls_streams": stream_sum.get("active_streams", 0),
         "vision_detections_logged": stream_vision_engine.detector.total_detections_logged,
+        "database": db_stats,
     }
+
+
+@app.get("/api/db/stats")
+async def get_database_stats():
+    """Returns SQLite database metrics, record counts, and storage size."""
+    return db.get_db_stats()
 
 
 @app.get("/events")
@@ -770,6 +829,21 @@ async def get_encounter_analytics():
     return encounter_tracker.get_analytics()
 
 
+@app.get("/api/encounters/{encounter_id}")
+async def get_encounter_by_id(encounter_id: str):
+    """Retrieves a specific encounter flyby session by its ID."""
+    for enc in encounter_tracker.get_active_encounters():
+        if enc.get("encounter_id") == encounter_id:
+            return enc
+    for enc in encounter_tracker.history:
+        if enc.get("encounter_id") == encounter_id:
+            return enc
+    enc = db.get_encounter(encounter_id)
+    if enc:
+        return enc
+    raise HTTPException(status_code=404, detail=f"Encounter '{encounter_id}' not found.")
+
+
 @app.get("/api/director")
 async def get_director():
     """Returns Auto-Director's recommended camera to watch right now based on active encounters."""
@@ -1052,6 +1126,30 @@ async def trigger_vision_sample(cam_id: str = Query(..., description="Camera ID 
 async def get_vision_metrics():
     """Retrieve aggregate telemetry on trackside computer vision detections and frame processing."""
     return stream_vision_engine.detector.get_metrics()
+
+
+@app.get("/api/vision/detections/frame/{frame_id}")
+async def get_vision_frame_by_id(frame_id: str):
+    """Retrieves a specific trackside vision detection frame by ID."""
+    for ev in stream_vision_engine.detector.history:
+        if ev.get("frame_id") == frame_id:
+            return ev
+    frame = db.get_vision_detection(frame_id)
+    if frame:
+        return frame
+    raise HTTPException(status_code=404, detail=f"Vision detection frame '{frame_id}' not found.")
+
+
+@app.post("/api/maintenance/prune")
+async def prune_database(max_age_days: float = Query(30.0, ge=1.0, le=365.0)):
+    """Prunes historical encounters, vision frames, and breadcrumbs older than max_age_days."""
+    result = db.prune_db(max_age_days=max_age_days)
+    return {
+        "status": "success",
+        "max_age_days": max_age_days,
+        "pruned": result,
+        "db_stats": db.get_db_stats(),
+    }
 
 
 if __name__ == "__main__":

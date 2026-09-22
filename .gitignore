@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 *.log
 *.pid
+*.db
+*.sqlite*
+*.wal
+*.shm

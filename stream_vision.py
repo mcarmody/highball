@@ -13,7 +13,7 @@ import hashlib
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from cam_lookup import PUBLIC_RAIL_CAMS
 from consist_detector import synthesize_consist_for_train
@@ -183,11 +183,38 @@ class StreamIngestManager:
 class TracksideVisionDetector:
     """Simulates real-time Computer Vision detection on live trackside video frames."""
 
-    def __init__(self, max_history: int = 100):
+    def __init__(
+        self,
+        max_history: int = 100,
+        persist_db: bool = False,
+        db_path: Optional[Union[Path, str]] = None,
+    ):
         self.max_history = max_history
+        self.persist_db = persist_db
+        self.db_path = db_path
         self.history: deque = deque(maxlen=max_history)
         self.total_frames_processed: int = 0
         self.total_detections_logged: int = 0
+        if self.persist_db:
+            self.hydrate_from_db()
+
+    def hydrate_from_db(self):
+        """Hydrates recent vision detection events from SQLite."""
+        try:
+            import db
+            recent = db.query_vision_detections(
+                limit=self.max_history,
+                order="asc",
+                db_path=self.db_path,
+            )
+            self.history.clear()
+            for ev in recent:
+                self.history.append(ev)
+                if ev.get("train_present"):
+                    self.total_detections_logged += 1
+            self.total_frames_processed += len(recent)
+        except Exception:
+            pass
 
     def sample_camera_frame(
         self,
@@ -319,9 +346,23 @@ class TracksideVisionDetector:
             }
 
         self.history.append(detection_event)
+        if self.persist_db:
+            try:
+                import db
+                db.save_vision_detection(detection_event, db_path=self.db_path)
+            except Exception:
+                pass
         return detection_event
 
     def get_recent_detections(self, cam_id: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
+        if self.persist_db:
+            try:
+                import db
+                records = db.query_vision_detections(limit=limit, cam_id=cam_id, order="desc", db_path=self.db_path)
+                if records:
+                    return records
+            except Exception:
+                pass
         events = list(self.history)
         if cam_id:
             events = [e for e in events if e.get("cam_id") == cam_id]
@@ -341,7 +382,7 @@ class StreamVisionEngine:
 
     def __init__(self):
         self.ingest = StreamIngestManager()
-        self.detector = TracksideVisionDetector(max_history=100)
+        self.detector = TracksideVisionDetector(max_history=100, persist_db=True)
 
     def process_proximity_detections(
         self,
