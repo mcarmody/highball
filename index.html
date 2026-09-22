@@ -112,7 +112,9 @@
 
     <!-- Floating Filter Drawer / Quick Filter Pill Bar -->
     <div class="absolute top-3 left-3 right-3 sm:right-auto z-[500] flex overflow-x-auto no-scrollbar gap-1.5 pointer-events-auto pb-1 max-w-full">
-      <button onclick="filterTrains('all')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-600 text-white shadow-sm border border-sky-500 shrink-0" data-filter="all">All Trains</button>
+      <button onclick="filterTrains('all')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-600 text-white shadow-sm border border-sky-500 shrink-0" data-filter="all">All Transit</button>
+      <button onclick="filterTrains('subway')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="subway"><i class="fa-solid fa-train-subway text-[10px] mr-1 text-emerald-400"></i>Subway / Metro</button>
+      <button onclick="filterTrains('commuter')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="commuter">Commuter</button>
       <button onclick="filterTrains('approaching')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="approaching">Closing In (&lt;15 mi)</button>
       <button onclick="filterTrains('highspeed')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="highspeed">Fast (&gt;60 mph)</button>
       <button id="trail-btn" onclick="toggleBreadcrumbs()" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" title="Toggle historical GPS breadcrumb trails">Trails: <span id="trail-status" class="text-emerald-400 font-semibold">ON</span></button>
@@ -392,7 +394,14 @@
       }
       const rot = deg - ICON_REST_OFFSET_DEG;
       const isFast = speed >= 60;
-      const colorClass = isFast ? 'bg-indigo-500 border-indigo-300' : 'bg-sky-600 border-sky-400';
+      let colorClass = isFast ? 'bg-indigo-500 border-indigo-300' : 'bg-sky-600 border-sky-400';
+      if (mode === 'subway') {
+        colorClass = 'bg-emerald-600 border-emerald-400 shadow-emerald-950/60';
+      } else if (mode === 'light_rail') {
+        colorClass = 'bg-amber-600 border-amber-400 shadow-amber-950/60';
+      } else if (mode === 'intercity_rail') {
+        colorClass = 'bg-indigo-600 border-indigo-400 shadow-indigo-950/60';
+      }
       return L.divIcon({
         className: 'train-marker',
         html: `
@@ -868,13 +877,21 @@
         if (currentFilter === 'highspeed' && props.speed_mph < 60) {
           return;
         }
+        if (currentFilter === 'subway' && props.mode !== 'subway' && props.mode !== 'light_rail') {
+          return;
+        }
+        if (currentFilter === 'commuter' && props.mode !== 'commuter_rail') {
+          return;
+        }
 
         // Historical GPS Breadcrumb Trails
         const bKey = props.id || props.train_num;
         if (breadcrumbsEnabled && breadcrumbLayerGroup && props.breadcrumbs && props.breadcrumbs.length >= 2) {
           const latlngs = props.breadcrumbs.map(c => [c[1], c[0]]);
           const isFast = (props.speed_mph || 0) >= 60;
-          const defaultColor = isFast ? '#818cf8' : '#38bdf8';
+          let defaultColor = isFast ? '#818cf8' : '#38bdf8';
+          if (props.mode === 'subway') defaultColor = '#34d399';
+          else if (props.mode === 'light_rail') defaultColor = '#fbbf24';
           const line = L.polyline(latlngs, {
             color: defaultColor,
             weight: 2.5,
@@ -887,7 +904,7 @@
         }
 
         const marker = L.marker([coords[1], coords[0]], {
-          icon: createTrainIcon(props.heading, props.speed_mph)
+          icon: createTrainIcon(props.heading, props.speed_mph, props.mode)
         });
 
         marker.on('mouseover', () => {
@@ -896,6 +913,10 @@
         marker.on('mouseout', () => {
           resetRouteHighlight();
         });
+
+        const modeBadgeHtml = props.mode_label 
+          ? `<span class="px-1.5 py-0.5 rounded ${props.mode === 'subway' ? 'bg-emerald-500/20 text-emerald-300' : (props.mode === 'light_rail' ? 'bg-amber-500/20 text-amber-300' : 'bg-sky-500/20 text-sky-300')} text-[10px] font-medium">${props.mode_label}</span>`
+          : '';
 
         const nextStopHtml = props.next_station 
           ? `<div class="text-slate-400 text-[11px]">Next: <span class="text-slate-200 font-medium">${props.next_station.name} (${props.next_station.code})</span></div>` 
@@ -908,7 +929,10 @@
         const popupHtml = `
           <div class="p-2 space-y-1 text-xs min-w-[210px]">
             <div class="flex items-center justify-between border-b border-slate-700/60 pb-1">
-              <span class="font-bold text-slate-100">Train #${props.train_num}</span>
+              <div class="flex items-center space-x-1.5">
+                <span class="font-bold text-slate-100">${props.mode === 'subway' ? 'Car #' : 'Train #'}${props.train_num}</span>
+                ${modeBadgeHtml}
+              </div>
               <span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px]">${props.speed_mph} mph</span>
             </div>
             <div class="text-slate-300 font-medium">${props.route}</div>

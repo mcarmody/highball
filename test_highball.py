@@ -391,6 +391,143 @@ def test_corridors_routes_mapping(client):
     assert "Coast Starlight" in routes_found
 
 
+def test_get_trains_mode_filter(client, monkeypatch):
+    """Verify /api/trains supports transit mode filtering (subway, commuter_rail, intercity_rail, all)."""
+    dummy_geojson = {
+        "type": "FeatureCollection",
+        "timestamp": 1234567.0,
+        "total_active": 3,
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-71.05, 42.36]},
+                "properties": {
+                    "id": "MBTA_Red_1",
+                    "train_num": "Red-1",
+                    "route": "MBTA Red",
+                    "agency": "MBTA",
+                    "mode": "subway",
+                    "mode_label": "Subway",
+                }
+            },
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-71.10, 42.35]},
+                "properties": {
+                    "id": "MBTA_CR_101",
+                    "train_num": "101",
+                    "route": "MBTA CR-Fitchburg",
+                    "agency": "MBTA",
+                    "mode": "commuter_rail",
+                    "mode_label": "Commuter Rail",
+                }
+            },
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-71.06, 42.35]},
+                "properties": {
+                    "id": "Amtrak_2150",
+                    "train_num": "2150",
+                    "route": "Acela",
+                    "agency": "Amtrak",
+                    "mode": "intercity_rail",
+                    "mode_label": "Intercity Rail",
+                }
+            },
+        ]
+    }
+    monkeypatch.setattr("server.fetch_live_train_geojson", lambda: dummy_geojson)
+
+    # Filter: subway
+    resp = client.get("/api/trains?mode=subway")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_active"] == 1
+    assert data["features"][0]["properties"]["mode"] == "subway"
+
+    # Filter: commuter_rail
+    resp = client.get("/api/trains?mode=commuter_rail")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_active"] == 1
+    assert data["features"][0]["properties"]["mode"] == "commuter_rail"
+
+    # Filter: rail (macro includes commuter + intercity)
+    resp = client.get("/api/trains?mode=rail")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_active"] == 2
+
+
+def test_mbta_subway_and_light_rail_parsing():
+    """Verify parse_mbta_v3_vehicles classifies heavy rail subways (type 1) and light rail (type 0)."""
+    from gtfs_rt_parser import parse_mbta_v3_vehicles
+
+    sample_payload = {
+        "data": [
+            {
+                "id": "veh-red-1",
+                "attributes": {
+                    "latitude": 42.3601,
+                    "longitude": -71.0589,
+                    "speed": 12.5,
+                    "bearing": 90.0,
+                    "current_status": "IN_TRANSIT_TO",
+                    "label": "1840",
+                },
+                "relationships": {
+                    "route": {"data": {"id": "Red", "type": "route"}}
+                }
+            },
+            {
+                "id": "veh-green-1",
+                "attributes": {
+                    "latitude": 42.3501,
+                    "longitude": -71.0789,
+                    "speed": 8.0,
+                    "bearing": 180.0,
+                    "current_status": "IN_TRANSIT_TO",
+                    "label": "3902",
+                },
+                "relationships": {
+                    "route": {"data": {"id": "Green-E", "type": "route"}}
+                }
+            },
+            {
+                "id": "veh-cr-1",
+                "attributes": {
+                    "latitude": 42.4001,
+                    "longitude": -71.1289,
+                    "speed": 25.0,
+                    "bearing": 270.0,
+                    "current_status": "IN_TRANSIT_TO",
+                    "label": "105",
+                },
+                "relationships": {
+                    "route": {"data": {"id": "CR-Fitchburg", "type": "route"}}
+                }
+            },
+        ],
+        "included": [
+            {"id": "Red", "type": "route", "attributes": {"type": 1}},
+            {"id": "Green-E", "type": "route", "attributes": {"type": 0}},
+            {"id": "CR-Fitchburg", "type": "route", "attributes": {"type": 2}},
+        ]
+    }
+    result = parse_mbta_v3_vehicles(sample_payload)
+    assert result["total_active"] == 3
+    features_by_id = {f["properties"]["id"]: f["properties"] for f in result["features"]}
+
+    assert features_by_id["MBTA_1840"]["mode"] == "subway"
+    assert features_by_id["MBTA_1840"]["mode_label"] == "Subway"
+
+    assert features_by_id["MBTA_3902"]["mode"] == "light_rail"
+    assert features_by_id["MBTA_3902"]["mode_label"] == "Light Rail"
+
+    assert features_by_id["MBTA_105"]["mode"] == "commuter_rail"
+    assert features_by_id["MBTA_105"]["mode_label"] == "Commuter Rail"
+
+
 
 
 

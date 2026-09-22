@@ -79,6 +79,13 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
         raw_status = str(v.get("current_status") or v.get("CurrentStatus") or "IN_TRANSIT_TO")
         status = raw_status.replace("_", " ").title()
 
+        # Determine transit mode
+        mode = "commuter_rail"
+        mode_label = "Commuter Rail"
+        if agency_id == "Sound Transit" and "link" in route_id.lower():
+            mode = "light_rail"
+            mode_label = "Light Rail"
+
         features.append({
             "type": "Feature",
             "geometry": {
@@ -90,6 +97,8 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
                 "train_num": trip_id,
                 "route": f"{agency_id} {route_id}",
                 "agency": agency_id,
+                "mode": mode,
+                "mode_label": mode_label,
                 "speed_mph": speed_mph,
                 "heading": bearing,
                 "timely": "On Time",
@@ -110,8 +119,24 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
 
 
 def parse_mbta_v3_vehicles(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Parses MBTA V3 REST API vehicles payload into Highball GeoJSON."""
+    """Parses MBTA V3 REST API vehicles payload into Highball GeoJSON.
+
+    Supports:
+    - Commuter Rail (route_type = 2)
+    - Heavy Rail Subway (route_type = 1, e.g. Red, Orange, Blue lines)
+    - Light Rail / Tram (route_type = 0, e.g. Green Line, Mattapan)
+    - Bus (route_type = 3)
+    """
     vehicles = data.get("data", [])
+    included = data.get("included", [])
+    route_types = {}
+    for item in included:
+        if item.get("type") == "route":
+            r_id = item.get("id")
+            r_type = item.get("attributes", {}).get("type")
+            if r_id and r_type is not None:
+                route_types[r_id] = r_type
+
     features = []
 
     for v in vehicles:
@@ -121,9 +146,24 @@ def parse_mbta_v3_vehicles(data: Dict[str, Any]) -> Dict[str, Any]:
         if lat is None or lon is None:
             continue
 
-        label = attrs.get("label") or v.get("id", "Commuter")
+        label = attrs.get("label") or v.get("id", "Transit")
         rels = v.get("relationships", {})
-        route_id = rels.get("route", {}).get("data", {}).get("id", "CR")
+        route_id = rels.get("route", {}).get("data", {}).get("id", "MBTA")
+        r_type = route_types.get(route_id, 2)
+
+        if r_type == 1:
+            mode = "subway"
+            mode_label = "Subway"
+        elif r_type == 0:
+            mode = "light_rail"
+            mode_label = "Light Rail"
+        elif r_type == 3:
+            mode = "bus"
+            mode_label = "Bus"
+        else:
+            mode = "commuter_rail"
+            mode_label = "Commuter Rail"
+
         speed_mps = attrs.get("speed")
         speed_mph = round(speed_mps * 2.23694, 1) if speed_mps is not None else 0.0
         bearing = attrs.get("bearing")
@@ -140,6 +180,8 @@ def parse_mbta_v3_vehicles(data: Dict[str, Any]) -> Dict[str, Any]:
                 "train_num": label,
                 "route": f"MBTA {route_id}",
                 "agency": "MBTA",
+                "mode": mode,
+                "mode_label": mode_label,
                 "speed_mph": speed_mph,
                 "heading": bearing,
                 "timely": "On Time",
