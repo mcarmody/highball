@@ -527,5 +527,126 @@ def generate_corridors_geojson(out_path: Optional[str] = None) -> Dict[str, Any]
     return geojson
 
 
+def get_corridor_by_id(corridor_id: str) -> Optional[Dict[str, Any]]:
+    """Look up a specific rail corridor configuration by ID or normalized short slug."""
+    cid_norm = (corridor_id or "").strip().lower()
+    for c in MAJOR_CORRIDORS:
+        raw_cid = c["corridor_id"].lower()
+        short_cid = raw_cid.replace("corridor_", "")
+        if cid_norm == raw_cid or cid_norm == short_cid or cid_norm == f"corridor_{cid_norm}":
+            return c
+    return None
+
+
+def get_corridor_cameras(corridor: Dict[str, Any], cameras: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Finds all cameras associated with or located near a corridor."""
+    corr_routes = [r.lower().strip() for r in corridor.get("routes", [])]
+    corr_sub = (corridor.get("subdivision") or "").lower().strip()
+    corr_coords = corridor.get("coordinates", [])
+
+    matched_cams = []
+    seen_ids = set()
+
+    for cam in cameras:
+        cam_id = cam.get("cam_id")
+        if not cam_id or cam_id in seen_ids:
+            continue
+
+        # Check route / subdivision match
+        cam_route = (cam.get("route") or "").lower()
+        cam_sub = (cam.get("subdivision") or "").lower()
+
+        route_match = any(r in cam_route or cam_route in r for r in corr_routes if r)
+        sub_match = bool(corr_sub and (corr_sub in cam_sub or cam_sub in corr_sub))
+
+        # Check coordinate proximity (within ~0.35 degrees or ~20 miles of any corridor node)
+        cam_lat = cam.get("lat")
+        cam_lon = cam.get("lon")
+        coord_match = False
+        if cam_lat is not None and cam_lon is not None:
+            for node_lon, node_lat in corr_coords:
+                if abs(cam_lat - node_lat) < 0.35 and abs(cam_lon - node_lon) < 0.35:
+                    coord_match = True
+                    break
+
+        if route_match or sub_match or coord_match:
+            matched_cams.append(cam)
+            seen_ids.add(cam_id)
+
+    return matched_cams
+
+
+def match_trains_to_corridor(corridor: Dict[str, Any], train_features: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Identifies active ground trains currently operating along a specific corridor."""
+    corr_routes = [r.lower().strip() for r in corridor.get("routes", [])]
+    corr_name = corridor.get("name", "").lower()
+    corr_op = corridor.get("operator", "").lower()
+
+    matched_trains = []
+    for f in train_features:
+        props = f.get("properties", {})
+        if props.get("mode") == "flight":
+            continue
+
+        route = (props.get("route") or "").lower().strip()
+        agency = (props.get("agency") or "").lower().strip()
+
+        is_match = False
+        for cr in corr_routes:
+            if cr and (cr in route or route in cr):
+                is_match = True
+                break
+
+        if not is_match and agency and agency in corr_op:
+            if "caltrain" in agency or "metra" in agency or "mbta" in agency:
+                is_match = True
+
+        if is_match:
+            matched_trains.append(f)
+
+    return matched_trains
+
+
+def get_all_corridors_density(
+    corridors: List[Dict[str, Any]],
+    train_features: List[Dict[str, Any]],
+    cameras: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Calculates real-time train density and camera distribution across all rail corridors."""
+    density_list = []
+    total_active_on_corridors = 0
+
+    for c in corridors:
+        trains = match_trains_to_corridor(c, train_features)
+        cams = get_corridor_cameras(c, cameras)
+        speeds = [t.get("properties", {}).get("speed_mph", 0.0) for t in trains]
+        peak_spd = max(speeds) if speeds else 0.0
+        avg_spd = round(sum(speeds) / len(speeds), 1) if speeds else 0.0
+
+        total_active_on_corridors += len(trains)
+        density_list.append({
+            "corridor_id": c["corridor_id"],
+            "name": c["name"],
+            "operator": c["operator"],
+            "active_train_count": len(trains),
+            "peak_speed_mph": peak_spd,
+            "avg_speed_mph": avg_spd,
+            "associated_cameras_count": len(cams),
+            "associated_camera_ids": [cam.get("cam_id") for cam in cams],
+            "waypoints": len(c.get("coordinates", [])),
+        })
+
+    # Sort corridors by active train count descending
+    density_list.sort(key=lambda x: (x["active_train_count"], x["peak_speed_mph"]), reverse=True)
+    busiest = density_list[0] if density_list else None
+
+    return {
+        "total_corridors": len(density_list),
+        "total_trains_on_corridors": total_active_on_corridors,
+        "busiest_corridor": busiest,
+        "corridors": density_list,
+    }
+
+
 if __name__ == "__main__":
     generate_corridors_geojson()

@@ -1182,6 +1182,82 @@ def test_index_html_sse_invariants():
     assert "Poll: 15s" in html
 
 
+def test_corridors_density_endpoint(client):
+    """Verify /api/corridors/density aggregates transit volume, speeds, and camera mapping across all mainlines."""
+    resp = client.get("/api/corridors/density")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "total_corridors" in data
+    assert data["total_corridors"] >= 16
+    assert "total_trains_on_corridors" in data
+    assert "busiest_corridor" in data
+    assert "corridors" in data
+    assert "timestamp" in data
+
+    corridors = data["corridors"]
+    assert len(corridors) >= 16
+    for c in corridors:
+        assert "corridor_id" in c
+        assert "name" in c
+        assert "operator" in c
+        assert "active_train_count" in c
+        assert "peak_speed_mph" in c
+        assert "avg_speed_mph" in c
+        assert "associated_cameras_count" in c
+        assert isinstance(c["active_train_count"], int)
+        assert isinstance(c["peak_speed_mph"], (int, float))
+
+
+def test_corridor_detail_endpoint(client):
+    """Verify /api/corridors/{corridor_id} returns coordinates, live trains, and mapped trackside webcams."""
+    # Test short slug
+    resp = client.get("/api/corridors/nec")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["corridor_id"] in ["nec", "corridor_nec"]
+    assert "Northeast Corridor" in data["name"]
+    assert "Amtrak" in data["operator"]
+    assert "coordinates" in data
+    assert len(data["coordinates"]) > 10
+    assert "active_trains" in data
+    assert "associated_cameras" in data
+    assert "peak_speed_mph" in data
+
+    # NEC should have trackside cams mapped
+    cams = data["associated_cameras"]
+    assert isinstance(cams, list)
+    assert len(cams) >= 1
+
+    # Test canonical ID
+    resp2 = client.get("/api/corridors/corridor_nec")
+    assert resp2.status_code == 200
+    assert resp2.json()["corridor_id"] == "corridor_nec"
+
+
+def test_corridor_detail_not_found(client):
+    """Verify /api/corridors/{corridor_id} returns 404 for invalid corridor IDs."""
+    resp = client.get("/api/corridors/invalid_ghost_corridor_999")
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+def test_index_html_corridor_density_invariants():
+    """Verify index.html contains corridor toggle, corridor sidebar, and density inspection logic."""
+    from server import INDEX_HTML
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "corridors-toggle-btn" in html
+    assert "corridor-sidebar" in html
+    assert "toggleCorridorsDrawer" in html
+    assert "showCorridorsDensityList" in html
+    assert "openCorridorDetail" in html
+    assert "/api/corridors/density" in html
+    assert "Mainline Rail Corridors" in html
+
+
+
 
 
 

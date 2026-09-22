@@ -526,6 +526,49 @@ async def get_corridors():
     return generate_corridors_geojson(str(CORRIDORS_GEOJSON))
 
 
+@app.get("/api/corridors/density")
+async def get_corridors_density():
+    """Returns aggregated real-time transit density, speed metrics, and camera distribution across all mainline rail corridors."""
+    from rail_corridors import MAJOR_CORRIDORS, get_all_corridors_density
+    geojson = fetch_live_train_geojson()
+    features = geojson.get("features", [])
+    density_data = get_all_corridors_density(MAJOR_CORRIDORS, features, PUBLIC_RAIL_CAMS)
+    density_data["timestamp"] = time.time()
+    return density_data
+
+
+@app.get("/api/corridors/{corridor_id}")
+async def get_corridor_details(corridor_id: str):
+    """Returns detailed corridor metadata, line coordinates, associated trackside cameras, and active trains on corridor."""
+    from rail_corridors import get_corridor_by_id, get_corridor_cameras, match_trains_to_corridor
+    corr = get_corridor_by_id(corridor_id)
+    if not corr:
+        raise HTTPException(status_code=404, detail=f"Rail corridor '{corridor_id}' not found.")
+
+    geojson = fetch_live_train_geojson()
+    features = geojson.get("features", [])
+    active_trains = match_trains_to_corridor(corr, features)
+    cams = get_corridor_cameras(corr, PUBLIC_RAIL_CAMS)
+
+    speeds = [t.get("properties", {}).get("speed_mph", 0.0) for t in active_trains]
+    peak_speed = max(speeds) if speeds else 0.0
+
+    return {
+        "corridor_id": corr["corridor_id"],
+        "name": corr["name"],
+        "operator": corr["operator"],
+        "subdivision": corr["subdivision"],
+        "routes": corr.get("routes", []),
+        "coordinates": corr.get("coordinates", []),
+        "waypoints": len(corr.get("coordinates", [])),
+        "active_train_count": len(active_trains),
+        "peak_speed_mph": peak_speed,
+        "active_trains": active_trains,
+        "associated_cameras": cams,
+        "timestamp": time.time(),
+    }
+
+
 @app.get("/api/trains")
 async def get_trains(
     agency: Optional[str] = Query(default=None),

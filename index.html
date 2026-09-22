@@ -79,6 +79,11 @@
         <i class="fa-solid fa-bell"></i>
         <span class="ml-1 hidden sm:inline">Alerts: ON</span>
       </button>
+      <button id="corridors-toggle-btn" onclick="toggleCorridorsDrawer()" class="px-2.5 sm:px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 flex items-center space-x-1.5 transition" title="Toggle Mainline Rail Corridors">
+        <i class="fa-solid fa-route text-indigo-400"></i>
+        <span>Corridors</span>
+        <span id="corridors-count-badge" class="ml-1 px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px]">16</span>
+      </button>
       <button onclick="handleEncountersClick()" class="px-2.5 sm:px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 flex items-center space-x-1.5 transition" title="Toggle Cam Encounters Ledger">
         <i class="fa-solid fa-satellite"></i>
         <span>Cam Encounters</span>
@@ -168,6 +173,28 @@
       </div>
       <div id="history-list" class="flex-1 overflow-y-auto p-3 space-y-2 hidden">
         <div class="text-center py-8 text-xs text-slate-500">No completed flybys logged yet.</div>
+      </div>
+    </aside>
+
+    <!-- Slide-Over Corridor Inspection & Density Drawer -->
+    <aside id="corridor-sidebar" class="absolute top-0 right-0 h-full w-80 md:w-96 bg-slate-900/95 backdrop-blur border-l border-indigo-500/40 z-[510] transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col shadow-2xl">
+      <!-- Corridor Drawer Header -->
+      <div class="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
+        <div class="flex items-center space-x-2 truncate mr-2">
+          <button id="corridor-back-btn" onclick="showCorridorsDensityList()" class="hidden text-slate-400 hover:text-slate-200 p-1 mr-1 text-xs" title="Back to All Corridors">
+            <i class="fa-solid fa-arrow-left"></i>
+          </button>
+          <i class="fa-solid fa-route text-indigo-400 text-xs shrink-0"></i>
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-200 truncate" id="corridor-sidebar-title">Mainline Rail Corridors</h2>
+        </div>
+        <button onclick="closeCorridorDetail()" class="text-slate-400 hover:text-slate-200 p-1 text-xs shrink-0">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Corridor Drawer Content (Density Overview vs Detail View) -->
+      <div id="corridor-content" class="flex-1 overflow-y-auto flex flex-col p-3 space-y-3">
+        <!-- Dynamically rendered -->
       </div>
     </aside>
 
@@ -618,6 +645,19 @@
             routeToCorridors[nameToken].add(cid);
 
             layer.bindTooltip(`${corrName} (${props.operator})`, { sticky: true });
+
+            layer.on('click', (e) => {
+              L.DomEvent.stopPropagation(e);
+              openCorridorDetail(cid);
+            });
+            layer.on('mouseover', () => {
+              layer.setStyle({ weight: 4, opacity: 0.85 });
+            });
+            layer.on('mouseout', () => {
+              if (!activeHighlightedCorridors.includes(layer)) {
+                layer.setStyle({ weight: 2, opacity: 0.35, color: '#6366f1', dashArray: '3, 6' });
+              }
+            });
           }
         }).addTo(corridorLayerGroup);
       } catch (err) {
@@ -1648,10 +1688,305 @@
       }
     }
 
+    let corridorSidebarOpen = false;
+    let corridorDensityCache = null;
+
+    function toggleCorridorsDrawer() {
+      if (corridorSidebarOpen) {
+        closeCorridorDetail();
+      } else {
+        if (sidebarOpen) toggleSidebar();
+        corridorSidebarOpen = true;
+        const sidebar = document.getElementById('corridor-sidebar');
+        if (sidebar) sidebar.classList.remove('translate-x-full');
+        showCorridorsDensityList();
+      }
+    }
+
+    function closeCorridorDetail() {
+      corridorSidebarOpen = false;
+      const sidebar = document.getElementById('corridor-sidebar');
+      if (sidebar) sidebar.classList.add('translate-x-full');
+      resetRouteHighlight();
+    }
+
+    function highlightCorridorById(cid) {
+      resetRouteHighlight();
+      const layer = corridorLayers[cid];
+      if (layer) {
+        layer.setStyle({
+          color: '#818cf8',
+          weight: 5,
+          opacity: 0.95,
+          dashArray: null
+        });
+        if (layer.bringToFront) layer.bringToFront();
+        activeHighlightedCorridors.push(layer);
+      }
+    }
+
+    function zoomToCorridor(cid) {
+      const layer = corridorLayers[cid];
+      if (layer && map) {
+        map.fitBounds(layer.getBounds(), { padding: [40, 40], maxZoom: 10 });
+      }
+    }
+
+    async function showCorridorsDensityList() {
+      const title = document.getElementById('corridor-sidebar-title');
+      const backBtn = document.getElementById('corridor-back-btn');
+      const content = document.getElementById('corridor-content');
+      if (title) title.innerText = 'Mainline Rail Corridors';
+      if (backBtn) backBtn.classList.add('hidden');
+      resetRouteHighlight();
+
+      if (!content) return;
+      content.innerHTML = `
+        <div class="flex items-center justify-center py-12 text-slate-500 text-xs space-x-2">
+          <i class="fa-solid fa-spinner fa-spin text-indigo-400"></i>
+          <span>Aggregating corridor transit density...</span>
+        </div>
+      `;
+
+      try {
+        const resp = await fetch('/api/corridors/density');
+        if (!resp.ok) throw new Error('Failed to load corridor density');
+        const data = await resp.json();
+        corridorDensityCache = data;
+
+        const busiest = data.busiest_corridor || {};
+        const busiestName = busiest.name ? `${busiest.name} (${busiest.active_train_count})` : 'None';
+
+        let html = `
+          <!-- Overview Stats -->
+          <div class="grid grid-cols-3 gap-2 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 text-center">
+            <div>
+              <div class="text-[10px] text-slate-400 uppercase font-mono">Corridors</div>
+              <div class="text-sm font-bold text-slate-100 font-mono">${data.total_corridors || 0}</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400 uppercase font-mono">Active Trains</div>
+              <div class="text-sm font-bold text-sky-400 font-mono">${data.total_trains_on_corridors || 0}</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400 uppercase font-mono">Top Segment</div>
+              <div class="text-[11px] font-semibold text-indigo-300 truncate font-mono" title="${busiestName}">${busiest.name || 'N/A'}</div>
+            </div>
+          </div>
+
+          <div class="text-[11px] text-slate-400 font-mono uppercase tracking-wider px-1 pt-1 flex items-center justify-between">
+            <span>High-Density Corridors</span>
+            <span class="text-[10px] text-slate-500">${(data.corridors || []).length} Mainlines</span>
+          </div>
+
+          <div class="space-y-2">
+        `;
+
+        (data.corridors || []).forEach(c => {
+          html += `
+            <div onclick="openCorridorDetail('${c.corridor_id}')" class="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800/80 hover:border-indigo-500/50 hover:bg-slate-800/40 transition cursor-pointer group">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-semibold text-slate-200 group-hover:text-indigo-300 transition truncate mr-2">${c.name}</span>
+                <span class="px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px] shrink-0">${c.active_train_count} trains</span>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                <span class="truncate text-slate-500">${c.operator}</span>
+                <div class="flex items-center space-x-2 shrink-0">
+                  <span><i class="fa-solid fa-gauge text-slate-500 mr-1"></i>${c.peak_speed_mph} mph</span>
+                  <span><i class="fa-solid fa-video text-slate-500 mr-1"></i>${c.associated_cameras_count} cams</span>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        html += `</div>`;
+        content.innerHTML = html;
+      } catch (err) {
+        content.innerHTML = `
+          <div class="p-4 text-center text-xs text-rose-400 bg-rose-500/10 rounded-lg border border-rose-500/20">
+            <i class="fa-solid fa-triangle-exclamation mb-1 text-base"></i>
+            <div>Error loading corridor density telemetry.</div>
+          </div>
+        `;
+      }
+    }
+
+    async function openCorridorDetail(corridorId) {
+      if (sidebarOpen) toggleSidebar();
+      corridorSidebarOpen = true;
+      const sidebar = document.getElementById('corridor-sidebar');
+      if (sidebar) sidebar.classList.remove('translate-x-full');
+
+      const title = document.getElementById('corridor-sidebar-title');
+      const backBtn = document.getElementById('corridor-back-btn');
+      const content = document.getElementById('corridor-content');
+
+      if (backBtn) backBtn.classList.remove('hidden');
+      if (title) title.innerText = 'Loading Corridor...';
+
+      highlightCorridorById(corridorId);
+
+      if (!content) return;
+      content.innerHTML = `
+        <div class="flex items-center justify-center py-12 text-slate-500 text-xs space-x-2">
+          <i class="fa-solid fa-spinner fa-spin text-indigo-400"></i>
+          <span>Retrieving corridor telemetry...</span>
+        </div>
+      `;
+
+      try {
+        const resp = await fetch(`/api/corridors/${corridorId}`);
+        if (!resp.ok) throw new Error('Corridor not found');
+        const data = await resp.json();
+
+        if (title) title.innerText = data.name || 'Corridor Detail';
+
+        let html = `
+          <!-- Meta & Action Banner -->
+          <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800 space-y-2.5">
+            <div class="flex items-center justify-between text-xs">
+              <span class="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px] font-semibold">${data.operator}</span>
+              <span class="text-slate-400 text-[10px] font-mono">${data.subdivision || 'Mainline Division'}</span>
+            </div>
+            <div class="text-[11px] text-slate-300 leading-snug">
+              ${data.routes && data.routes.length ? data.routes.join(' · ') : 'Standard Mainline Routing'}
+            </div>
+            <div class="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-800/80 font-mono text-[11px]">
+              <div>
+                <span class="text-slate-500 text-[9px] uppercase block">Active</span>
+                <span class="text-sky-400 font-bold">${data.active_train_count}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 text-[9px] uppercase block">Peak Spd</span>
+                <span class="text-indigo-300 font-bold">${data.peak_speed_mph} mph</span>
+              </div>
+              <div>
+                <span class="text-slate-500 text-[9px] uppercase block">Webcams</span>
+                <span class="text-amber-400 font-bold">${(data.associated_cameras || []).length}</span>
+              </div>
+            </div>
+            <div class="pt-1">
+              <button onclick="zoomToCorridor('${corridorId}')" class="w-full py-1.5 px-3 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs flex items-center justify-center space-x-1.5 shadow-sm transition">
+                <i class="fa-solid fa-expand text-[10px]"></i>
+                <span>Fit Corridor to Map</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Active Trains Section -->
+          <div class="space-y-2 pt-1">
+            <div class="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-slate-400 px-1">
+              <span>Active Trains (${(data.active_trains || []).length})</span>
+            </div>
+        `;
+
+        if (!data.active_trains || data.active_trains.length === 0) {
+          html += `
+            <div class="p-3 text-center text-xs text-slate-500 bg-slate-950/40 rounded-lg border border-slate-800/50">
+              No active trains currently matched to this corridor.
+            </div>
+          `;
+        } else {
+          html += `<div class="space-y-2">`;
+          data.active_trains.forEach(t => {
+            const p = t.properties || {};
+            const coords = t.geometry ? t.geometry.coordinates : null;
+            const trainId = p.train_num || p.id || 'Train';
+            html += `
+              <div onclick="jumpToTrainFromCorridor('${trainId}', ${coords ? coords[1] : 0}, ${coords ? coords[0] : 0})" class="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-sky-500/50 hover:bg-slate-800/40 transition cursor-pointer group">
+                <div class="flex items-center justify-between mb-1">
+                  <div class="flex items-center space-x-1.5">
+                    <span class="px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 font-mono text-[10px] font-semibold">${trainId}</span>
+                    <span class="text-xs font-semibold text-slate-200 group-hover:text-sky-300 transition truncate">${p.route || p.agency || 'Transit'}</span>
+                  </div>
+                  <span class="text-[10px] font-mono text-emerald-400 font-semibold">${p.speed_mph || 0} mph</span>
+                </div>
+                <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                  <span class="truncate text-slate-500">${p.dest ? 'To: ' + p.dest : (p.agency || '')}</span>
+                  <span class="text-sky-400 group-hover:underline text-[9px] flex items-center space-x-1">
+                    <span>Jump</span>
+                    <i class="fa-solid fa-arrow-right text-[8px]"></i>
+                  </span>
+                </div>
+              </div>
+            `;
+          });
+          html += `</div>`;
+        }
+
+        html += `
+          </div>
+
+          <!-- Associated Trackside Cameras Section -->
+          <div class="space-y-2 pt-2">
+            <div class="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-slate-400 px-1">
+              <span>Trackside Webcams (${(data.associated_cameras || []).length})</span>
+            </div>
+        `;
+
+        if (!data.associated_cameras || data.associated_cameras.length === 0) {
+          html += `
+            <div class="p-3 text-center text-xs text-slate-500 bg-slate-950/40 rounded-lg border border-slate-800/50">
+              No trackside cameras directly mapped along this corridor.
+            </div>
+          `;
+        } else {
+          html += `<div class="space-y-2">`;
+          data.associated_cameras.forEach(cam => {
+            const camName = (cam.name || 'Railfan Cam').replace(/'/g, "\\'");
+            const camLoc = (cam.location || '').replace(/'/g, "\\'");
+            const camEmbed = (cam.embed_url || '').replace(/'/g, "\\'");
+            const camProv = (cam.provider || 'Trackside Feed').replace(/'/g, "\\'");
+            const camStream = (cam.stream_url || '').replace(/'/g, "\\'");
+
+            html += `
+              <div class="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/40 transition">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs font-semibold text-slate-200 truncate mr-2">${cam.name}</span>
+                  <span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono text-[9px] shrink-0">${cam.provider || 'Live'}</span>
+                </div>
+                <div class="text-[10px] text-slate-400 font-mono mb-2 truncate">${cam.location || 'Trackside'}</div>
+                <div class="flex items-center space-x-2">
+                  <button onclick="openCamModal('${camName}', '${camLoc}', '${camEmbed}', '${camProv}', '${camStream}')" class="flex-1 py-1 px-2 rounded bg-indigo-600/80 hover:bg-indigo-600 text-white font-medium text-[10px] flex items-center justify-center space-x-1 transition">
+                    <i class="fa-solid fa-play text-[9px]"></i>
+                    <span>Watch Modal</span>
+                  </button>
+                  <button onclick="openPipForCam('${camName}', '${camLoc}', '${camEmbed}', '${camProv}', '${camStream}', 'Corridor Camera')" class="py-1 px-2.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 font-medium text-[10px] flex items-center justify-center space-x-1 transition" title="Open in Floating PIP">
+                    <i class="fa-solid fa-tv text-[9px]"></i>
+                    <span>PIP</span>
+                  </button>
+                </div>
+              </div>
+            `;
+          });
+          html += `</div>`;
+        }
+
+        html += `</div>`;
+        content.innerHTML = html;
+      } catch (err) {
+        content.innerHTML = `
+          <div class="p-4 text-center text-xs text-rose-400 bg-rose-500/10 rounded-lg border border-rose-500/20">
+            <i class="fa-solid fa-triangle-exclamation mb-1 text-base"></i>
+            <div>Error loading corridor details: ${err.message}</div>
+          </div>
+        `;
+      }
+    }
+
+    function jumpToTrainFromCorridor(trainId, lat, lon) {
+      if (lat && lon && map) {
+        map.flyTo([lat, lon], 12, { duration: 1.0 });
+        highlightTrainRouteByNum(trainId);
+      }
+    }
+
     function toggleSidebar() {
       sidebarOpen = !sidebarOpen;
       const sidebar = document.getElementById('encounter-sidebar');
       if (sidebarOpen) {
+        if (corridorSidebarOpen) closeCorridorDetail();
         sidebar.classList.remove('translate-x-full');
       } else {
         sidebar.classList.add('translate-x-full');
