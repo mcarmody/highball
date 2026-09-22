@@ -171,8 +171,14 @@ def _fetch_amtrak() -> List[Dict[str, Any]]:
 
 
 def _fetch_mbta() -> List[Dict[str, Any]]:
-    """Fetches live MBTA vehicles: Subways (Red/Orange/Blue), Light Rail (Green), and Commuter Rail."""
-    url = "https://api-v3.mbta.com/vehicles?filter[route_type]=0,1,2&include=route"
+    """Fetches live MBTA vehicles: Subways (Red/Orange/Blue), Light Rail (Green), Commuter Rail, and Bus.
+
+    Mike, 2026-09-21 21:36 PT asked for bus specifically (alongside subway,
+    which already had support) — parse_mbta_v3_vehicles already resolves
+    route_type=3 to mode="bus", but this fetch's own filter excluded it, so
+    no bus vehicle ever reached the parser. Widened to include it.
+    """
+    url = "https://api-v3.mbta.com/vehicles?filter[route_type]=0,1,2,3&include=route"
     if MBTA_API_KEY:
         url += f"&api_key={MBTA_API_KEY}"
     try:

@@ -115,6 +115,7 @@
       <button onclick="filterTrains('all')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-600 text-white shadow-sm border border-sky-500 shrink-0" data-filter="all">All Transit</button>
       <button onclick="filterTrains('subway')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="subway"><i class="fa-solid fa-train-subway text-[10px] mr-1 text-emerald-400"></i>Subway / Metro</button>
       <button onclick="filterTrains('commuter')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="commuter">Commuter</button>
+      <button onclick="filterTrains('bus')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="bus"><i class="fa-solid fa-bus text-[10px] mr-1 text-rose-400"></i>Bus</button>
       <button onclick="filterTrains('approaching')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="approaching">Closing In (&lt;15 mi)</button>
       <button onclick="filterTrains('highspeed')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="highspeed">Fast (&gt;60 mph)</button>
       <button id="trail-btn" onclick="toggleBreadcrumbs()" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" title="Toggle historical GPS breadcrumb trails">Trails: <span id="trail-status" class="text-emerald-400 font-semibold">ON</span></button>
@@ -401,6 +402,8 @@
         colorClass = 'bg-amber-600 border-amber-400 shadow-amber-950/60';
       } else if (mode === 'intercity_rail') {
         colorClass = 'bg-indigo-600 border-indigo-400 shadow-indigo-950/60';
+      } else if (mode === 'bus') {
+        colorClass = 'bg-rose-600 border-rose-400 shadow-rose-950/60';
       }
       return L.divIcon({
         className: 'train-marker',
@@ -883,6 +886,9 @@
         if (currentFilter === 'commuter' && props.mode !== 'commuter_rail') {
           return;
         }
+        if (currentFilter === 'bus' && props.mode !== 'bus') {
+          return;
+        }
 
         // Historical GPS Breadcrumb Trails
         const bKey = props.id || props.train_num;
@@ -914,8 +920,8 @@
           resetRouteHighlight();
         });
 
-        const modeBadgeHtml = props.mode_label 
-          ? `<span class="px-1.5 py-0.5 rounded ${props.mode === 'subway' ? 'bg-emerald-500/20 text-emerald-300' : (props.mode === 'light_rail' ? 'bg-amber-500/20 text-amber-300' : 'bg-sky-500/20 text-sky-300')} text-[10px] font-medium">${props.mode_label}</span>`
+        const modeBadgeHtml = props.mode_label
+          ? `<span class="px-1.5 py-0.5 rounded ${props.mode === 'subway' ? 'bg-emerald-500/20 text-emerald-300' : (props.mode === 'light_rail' ? 'bg-amber-500/20 text-amber-300' : (props.mode === 'bus' ? 'bg-rose-500/20 text-rose-300' : 'bg-sky-500/20 text-sky-300'))} text-[10px] font-medium">${props.mode_label}</span>`
           : '';
 
         const nextStopHtml = props.next_station 
@@ -930,7 +936,7 @@
           <div class="p-2 space-y-1 text-xs min-w-[210px]">
             <div class="flex items-center justify-between border-b border-slate-700/60 pb-1">
               <div class="flex items-center space-x-1.5">
-                <span class="font-bold text-slate-100">${props.mode === 'subway' ? 'Car #' : 'Train #'}${props.train_num}</span>
+                <span class="font-bold text-slate-100">${props.mode === 'subway' ? 'Car #' : (props.mode === 'bus' ? 'Bus #' : 'Train #')}${props.train_num}</span>
                 ${modeBadgeHtml}
               </div>
               <span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px]">${props.speed_mph} mph</span>
