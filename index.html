@@ -202,7 +202,7 @@
         </button>
       </div>
       <div class="aspect-video w-full bg-black relative flex items-center justify-center">
-        <iframe id="modal-iframe" class="w-full h-full border-0 hidden" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+        <iframe id="modal-iframe" class="w-full h-full border-0 hidden" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
         <div id="modal-no-stream" class="flex flex-col items-center justify-center p-6 sm:p-8 text-center text-slate-300 w-full h-full bg-gradient-to-b from-slate-950/80 to-slate-900/90 relative overflow-hidden">
           <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-950/20 via-transparent to-transparent pointer-events-none"></div>
 
@@ -238,7 +238,7 @@
         <div id="modal-cam-details">Provider: Trackside Feed · Telemetry Active</div>
         <div class="flex items-center space-x-2">
           <a id="modal-external-link" href="#" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-indigo-200 border border-slate-700/80 text-xs inline-flex items-center space-x-1 transition">
-            <span>External Stream</span>
+            <span>Watch on YouTube</span>
             <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
           </a>
           <button onclick="closeCamModal()" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs">Close</button>
@@ -938,12 +938,25 @@
       if (providerName) providerName.innerText = prov;
       if (providerPill) providerPill.innerText = prov;
 
-      const targetUrl = (streamUrl && streamUrl !== '' && streamUrl !== 'undefined') ? streamUrl : ((embedUrl && embedUrl !== '' && embedUrl !== 'undefined') ? embedUrl : '#');
+      let targetUrl = (streamUrl && streamUrl !== '' && streamUrl !== 'undefined') ? streamUrl : ((embedUrl && embedUrl !== '' && embedUrl !== 'undefined') ? embedUrl : '#');
       if (streamBtn) streamBtn.href = targetUrl;
       if (externalLink) externalLink.href = targetUrl;
 
-      if (embedUrl && embedUrl !== '' && embedUrl !== 'undefined') {
-        iframe.src = embedUrl;
+      // Smart embed URL resolver: ensure YouTube embeds use youtube-nocookie with autoplay & mute
+      let finalEmbed = (embedUrl && embedUrl !== '' && embedUrl !== 'undefined') ? embedUrl : '';
+      if (!finalEmbed && streamUrl && streamUrl !== '' && streamUrl !== 'undefined') {
+        finalEmbed = streamUrl;
+      }
+
+      if (finalEmbed) {
+        const ytMatch = finalEmbed.match(/(?:v=|\/v\/|youtu\.be\/|\/embed\/)([A-Za-z0-9_-]{11})/);
+        if (ytMatch) {
+          finalEmbed = `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&mute=1&enablejsapi=1`;
+        }
+      }
+
+      if (finalEmbed) {
+        iframe.src = finalEmbed;
         iframe.classList.remove('hidden');
         noStream.classList.add('hidden');
       } else {
@@ -963,6 +976,17 @@
       const modal = document.getElementById('cam-modal');
       modal.classList.add('hidden');
       modal.classList.remove('flex');
+    }
+
+    // Modal keyboard & backdrop dismissal
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeCamModal();
+    });
+    const camModalEl = document.getElementById('cam-modal');
+    if (camModalEl) {
+      camModalEl.addEventListener('click', (e) => {
+        if (e.target.id === 'cam-modal') closeCamModal();
+      });
     }
 
     // Boot

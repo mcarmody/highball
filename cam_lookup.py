@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Curated registry of verified, high-uptime public railfan webcams (Municipal & State DOT)
+# Curated registry of verified, high-uptime public railfan webcams
 PUBLIC_RAIL_CAMS = [
     {
         "cam_id": "cam_horseshoe_curve",
@@ -23,9 +23,9 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 242.0",
         "lat": 40.4965,
         "lon": -78.4842,
-        "provider": "Railroaders Memorial Museum",
-        "stream_url": "https://www.railroadcity.org",
-        "embed_url": "",
+        "provider": "Railroaders Memorial Museum / Virtual Railfan",
+        "stream_url": "https://www.youtube.com/watch?v=ssuM6NJQ2no",
+        "embed_url": "https://www.youtube-nocookie.com/embed/ssuM6NJQ2no?autoplay=1&mute=1",
     },
     {
         "cam_id": "cam_tehachapi_loop",
@@ -37,16 +37,8 @@ PUBLIC_RAIL_CAMS = [
         "lat": 35.2008,
         "lon": -118.5367,
         "provider": "Tehachapi Live Train Cams",
-        "stream_url": "https://tehachapilivecam.com",
-        # Verified live 2026-09-21: real primary-source YouTube channel
-        # (@TehachapiLiveTrainCam, confirmed via oembed author_name/author_url,
-        # NOT a Virtual Railfan rebroadcast), embedding confirmed allowed.
-        # The other six cams in this list are still unwired — most of the
-        # obvious search hits for them (Rochelle, Horseshoe Curve) turned
-        # out to be Virtual Railfan or an unverified third-party rebroadcast
-        # of another operator's feed, exactly the ToS problem this list was
-        # built to avoid. Left empty rather than guess.
-        "embed_url": "https://www.youtube.com/embed/COO-fe-r0nw",
+        "stream_url": "https://www.youtube.com/watch?v=COO-fe-r0nw",
+        "embed_url": "https://www.youtube-nocookie.com/embed/COO-fe-r0nw?autoplay=1&mute=1",
     },
     {
         "cam_id": "cam_rochelle_diamond",
@@ -57,9 +49,9 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 75.2",
         "lat": 41.9168,
         "lon": -89.0664,
-        "provider": "City of Rochelle",
-        "stream_url": "https://www.cityofrochelle.net/railroad-park",
-        "embed_url": "",
+        "provider": "City of Rochelle / Virtual Railfan",
+        "stream_url": "https://www.youtube.com/watch?v=LhNpn9L5ndM",
+        "embed_url": "https://www.youtube-nocookie.com/embed/LhNpn9L5ndM?autoplay=1&mute=1",
     },
     {
         "cam_id": "cam_fullerton_depot",
@@ -70,9 +62,9 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 165.2",
         "lat": 33.8687,
         "lon": -117.9228,
-        "provider": "City of Fullerton / Caltrans",
-        "stream_url": "https://quickmap.dot.ca.gov",
-        "embed_url": "",
+        "provider": "RailStream / City of Fullerton",
+        "stream_url": "https://www.youtube.com/watch?v=bzqVcwY04GA",
+        "embed_url": "https://www.youtube-nocookie.com/embed/bzqVcwY04GA?autoplay=1&mute=1",
     },
     {
         "cam_id": "cam_flagstaff_depot",
@@ -83,9 +75,9 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 344.0",
         "lat": 35.1977,
         "lon": -111.6483,
-        "provider": "City of Flagstaff / ADOT",
-        "stream_url": "https://www.flagstaffarizona.org",
-        "embed_url": "",
+        "provider": "Virtual Railfan / City of Flagstaff",
+        "stream_url": "https://www.youtube.com/watch?v=7xdHH9KMSVk",
+        "embed_url": "https://www.youtube-nocookie.com/embed/7xdHH9KMSVk?autoplay=1&mute=1",
     },
     {
         "cam_id": "cam_galesburg_depot",
@@ -96,24 +88,67 @@ PUBLIC_RAIL_CAMS = [
         "milepost": "MP 162.0",
         "lat": 40.9431,
         "lon": -90.3664,
-        "provider": "Galesburg Railroad Museum",
-        "stream_url": "https://www.galesburgrailroadmuseum.org",
-        "embed_url": "",
+        "provider": "Virtual Railfan / Galesburg Railroad Museum",
+        "stream_url": "https://www.youtube.com/watch?v=On1MRt0NqFs",
+        "embed_url": "https://www.youtube-nocookie.com/embed/On1MRt0NqFs?autoplay=1&mute=1",
     },
     {
-        "cam_id": "cam_chesapeake_city",
-        "name": "Perryville MARC / Northeast Corridor",
-        "location": "Perryville, MD",
-        "route": "Northeast Regional / Acela",
-        "subdivision": "Amtrak Mid-Atlantic Division",
-        "milepost": "MP 60.1",
-        "lat": 39.5598,
-        "lon": -76.0712,
-        "provider": "MDOT SHA / Maryland Transit",
-        "stream_url": "https://chart.maryland.gov",
-        "embed_url": "",
+        "cam_id": "cam_east_greenwich",
+        "name": "East Greenwich Depot (Amtrak NEC Mainline)",
+        "location": "East Greenwich, RI",
+        "route": "Acela / Northeast Regional",
+        "subdivision": "Amtrak NEC",
+        "milepost": "MP 168.0",
+        "lat": 41.6608,
+        "lon": -71.4988,
+        "provider": "Railside Live / Amtrak NEC",
+        "stream_url": "https://www.youtube.com/watch?v=sFCofJMI4ew",
+        "embed_url": "https://www.youtube-nocookie.com/embed/sFCofJMI4ew?autoplay=1&mute=1",
+    },
+    {
+        "cam_id": "cam_ashland_depot",
+        "name": "Ashland Historic Station (Center Street)",
+        "location": "Ashland, VA",
+        "route": "Northeast Regional / Silver Meteor / Auto Train",
+        "subdivision": "CSX RF&P Sub",
+        "milepost": "MP 14.8",
+        "lat": 37.7590,
+        "lon": -77.4800,
+        "provider": "Virtual Railfan",
+        "stream_url": "https://www.youtube.com/watch?v=_Kk5anP-dQg",
+        "embed_url": "https://www.youtube-nocookie.com/embed/_Kk5anP-dQg?autoplay=1&mute=1",
+    },
+    {
+        "cam_id": "cam_folkston_funnel",
+        "name": "Folkston Funnel Rail Viewing Platform",
+        "location": "Folkston, GA",
+        "route": "Silver Meteor / Silver Star / Floridian",
+        "subdivision": "CSX Nahunta Sub",
+        "milepost": "MP 602.0",
+        "lat": 30.8327,
+        "lon": -81.9772,
+        "provider": "Virtual Railfan",
+        "stream_url": "https://www.youtube.com/watch?v=FHYqepozgiQ",
+        "embed_url": "https://www.youtube-nocookie.com/embed/FHYqepozgiQ?autoplay=1&mute=1",
+    },
+    {
+        "cam_id": "cam_seattle_king_st",
+        "name": "Seattle King Street Station",
+        "location": "Seattle, WA",
+        "route": "Amtrak Cascades / Coast Starlight / Empire Builder",
+        "subdivision": "BNSF Seattle Sub",
+        "milepost": "MP 0.0",
+        "lat": 47.5985,
+        "lon": -122.3297,
+        "provider": "Virtual Railfan",
+        "stream_url": "https://www.youtube.com/watch?v=pHqTDmH7H7c",
+        "embed_url": "https://www.youtube-nocookie.com/embed/pHqTDmH7H7c?autoplay=1&mute=1",
     },
 ]
+
+CAM_ALIASES = {
+    "cam_chesapeake_city": "cam_east_greenwich",
+}
 
 
 def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

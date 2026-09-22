@@ -336,6 +336,37 @@ def test_index_html_invariants():
     assert "sheet-encounters-list" in html
     assert "toggleMobileBottomSheet" in html
 
+    # Live video embed invariants
+    assert "modal-iframe" in html
+    assert "youtube-nocookie.com/embed/" in html
+    assert "openCamModal" in html
+    assert "closeCamModal" in html
+
+
+def test_all_webcams_have_live_embed_urls():
+    """Verify all registered rail webcams have valid in-app embed and stream URLs."""
+    from cam_lookup import PUBLIC_RAIL_CAMS
+    assert len(PUBLIC_RAIL_CAMS) >= 7
+    for cam in PUBLIC_RAIL_CAMS:
+        assert cam.get("embed_url"), f"Camera {cam['cam_id']} missing embed_url"
+        assert "youtube-nocookie.com/embed/" in cam["embed_url"]
+        assert "autoplay=1" in cam["embed_url"]
+        assert "mute=1" in cam["embed_url"]
+        assert cam.get("stream_url"), f"Camera {cam['cam_id']} missing stream_url"
+
+
+def test_webcams_endpoint_embed_urls(client):
+    """Verify /api/cams returns GeoJSON where every feature exposes an embed_url."""
+    resp = client.get("/api/cams")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["features"]) >= 7
+    for feat in data["features"]:
+        props = feat["properties"]
+        assert props.get("embed_url"), f"Cam {props.get('cam_id')} has no embed_url in GeoJSON"
+        assert "youtube-nocookie.com/embed/" in props["embed_url"]
+
+
 
 
 
