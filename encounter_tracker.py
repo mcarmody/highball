@@ -22,10 +22,12 @@ class EncounterTracker:
     def _session_key(self, train_num: str, cam_id: str) -> str:
         return f"{train_num}:{cam_id}"
 
-    def update(self, current_proximity_events: List[Dict[str, Any]], timestamp: Optional[float] = None):
+    def update(self, current_proximity_events: List[Dict[str, Any]], timestamp: Optional[float] = None) -> Dict[str, List[Dict[str, Any]]]:
         """Updates active encounter sessions and closes sessions when trains leave zone."""
         now = timestamp or time.time()
         seen_keys = set()
+        new_sessions = []
+        completed_sessions = []
 
         for ev in current_proximity_events:
             dist = ev.get("distance_miles", 99.0)
@@ -43,7 +45,7 @@ class EncounterTracker:
 
             if key not in self.active_sessions:
                 # Initiate new encounter session
-                self.active_sessions[key] = {
+                sess = {
                     "encounter_id": f"enc_{train_num}_{cam_id}_{int(now)}",
                     "train_num": train_num,
                     "route": train.get("route", "Unknown Route"),
@@ -61,6 +63,8 @@ class EncounterTracker:
                     "trajectory_entry": ev.get("trajectory", "unknown"),
                     "status": "in_progress",
                 }
+                self.active_sessions[key] = sess
+                new_sessions.append(sess)
             else:
                 # Update existing session
                 sess = self.active_sessions[key]
@@ -78,10 +82,13 @@ class EncounterTracker:
                 sess["end_time"] = now
                 sess["duration_seconds"] = round(now - sess["start_time"], 1)
                 self.history.append(sess)
+                completed_sessions.append(sess)
                 completed_keys.append(key)
 
         for k in completed_keys:
             del self.active_sessions[k]
+
+        return {"new": new_sessions, "completed": completed_sessions}
 
     def get_recent_history(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Returns completed encounter history ordered newest-first."""

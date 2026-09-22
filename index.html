@@ -1725,13 +1725,93 @@
       });
     }
 
+    // Highball Real-Time SSE Bus Integration
+    let sseSource = null;
+
+    function initSSE() {
+      if (!window.EventSource) return;
+      try {
+        if (sseSource) {
+          sseSource.close();
+        }
+        sseSource = new EventSource('/events');
+
+        sseSource.addEventListener('open', () => {
+          const statusText = document.getElementById('status-text');
+          const statusDot = document.getElementById('status-dot');
+          if (statusText) statusText.innerText = 'SSE: Live';
+          if (statusDot) {
+            statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+          }
+        });
+
+        sseSource.addEventListener('connected', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            console.log('[Highball SSE] Handshake received:', data);
+          } catch (err) {}
+        });
+
+        sseSource.addEventListener('telemetry', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.counts) {
+              latestFleetCounts = data.counts;
+              updateFleetCountPills();
+            }
+            if (data.total_active !== undefined) {
+              const statTrains = document.getElementById('stat-trains');
+              if (statTrains) statTrains.innerText = `${data.total_active} Active`;
+            }
+          } catch (err) {}
+        });
+
+        sseSource.addEventListener('proximity', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.events) {
+              proximityEvents = data.events;
+              const statEncounters = document.getElementById('stat-encounters');
+              if (statEncounters) statEncounters.innerText = data.total_matches || proximityEvents.length;
+              const tabActiveBadge = document.getElementById('tab-count-active');
+              if (tabActiveBadge) tabActiveBadge.innerText = data.total_matches || proximityEvents.length;
+              renderEncountersDrawer();
+              checkAutoDirector();
+            }
+          } catch (err) {}
+        });
+
+        sseSource.addEventListener('encounter', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data) {
+              playApproachChime();
+              refreshTelemetry();
+            }
+          } catch (err) {}
+        });
+
+        sseSource.onerror = () => {
+          const statusText = document.getElementById('status-text');
+          const statusDot = document.getElementById('status-dot');
+          if (statusText) statusText.innerText = 'Poll: 15s';
+          if (statusDot) {
+            statusDot.className = 'w-2 h-2 rounded-full bg-amber-500 animate-pulse';
+          }
+        };
+      } catch (err) {
+        console.warn('[Highball SSE] EventSource init failed, relying on polling:', err);
+      }
+    }
+
     // Boot
     window.addEventListener('DOMContentLoaded', () => {
       initMap();
       loadWebcams();
       loadCorridors();
       refreshTelemetry();
-      setInterval(refreshTelemetry, 15000); // 15s refresh
+      initSSE();
+      setInterval(refreshTelemetry, 15000); // 15s polling fallback
     });
   </script>
 </body>

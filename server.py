@@ -8,18 +8,19 @@ Provides:
 - GET /health: Telemetry and upstream status
 """
 
+import asyncio
 import concurrent.futures
 import json
 import os
 import time
 from collections import deque
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import requests
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from cam_lookup import (
@@ -60,6 +61,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Active Server-Sent Events (SSE) subscriber queues
+subscribers: Set[asyncio.Queue] = set()
+
+
+def broadcast_sse_sync(event_type: str, data: Any):
+    """Synchronously puts an event into all connected SSE queues without blocking."""
+    if not subscribers:
+        return
+    payload = json.dumps(data) if not isinstance(data, str) else data
+    dead_queues = set()
+    for q in list(subscribers):
+        try:
+            q.put_nowait((event_type, payload))
+        except asyncio.QueueFull:
+            dead_queues.add(q)
+        except Exception:
+            dead_queues.add(q)
+    for dq in dead_queues:
+        subscribers.discard(dq)
+
 
 # Cache for upstream transit data to avoid hitting rate limits
 _train_cache: Dict[str, Any] = {
@@ -283,6 +305,41 @@ def _fetch_flights() -> List[Dict[str, Any]]:
     return _flight_cache["features"]
 
 
+def calculate_fleet_counts(features: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Tallies fleet counts across all transit modes and highspeed vehicles."""
+    counts = {
+        "ground": 0,
+        "amtrak": 0,
+        "subway": 0,
+        "commuter": 0,
+        "bus": 0,
+        "flight": 0,
+        "all": len(features),
+        "highspeed": 0,
+    }
+    for f in features:
+        props = f.get("properties", {})
+        m = props.get("mode", "")
+        if m == "intercity_rail":
+            counts["amtrak"] += 1
+            counts["ground"] += 1
+        elif m in ["subway", "light_rail"]:
+            counts["subway"] += 1
+            counts["ground"] += 1
+        elif m == "commuter_rail":
+            counts["commuter"] += 1
+            counts["ground"] += 1
+        elif m == "bus":
+            counts["bus"] += 1
+            counts["ground"] += 1
+        elif m == "flight":
+            counts["flight"] += 1
+
+        if props.get("speed_mph", 0.0) >= 60.0:
+            counts["highspeed"] += 1
+    return counts
+
+
 def fetch_live_train_geojson() -> Dict[str, Any]:
     """Fetches live multi-agency transit concurrently (Amtrak, MBTA Subway/Rail, Caltrain, Metra, Sound Transit, OpenSky Flights)."""
     now = time.time()
@@ -347,6 +404,12 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
     }
     _train_cache["timestamp"] = now
     _train_cache["geojson"] = geojson
+
+    broadcast_sse_sync("telemetry", {
+        "timestamp": now,
+        "total_active": len(features),
+        "counts": calculate_fleet_counts(features),
+    })
     return geojson
 
 
@@ -390,7 +453,58 @@ async def health():
         "active_cams": len(PUBLIC_RAIL_CAMS),
         "cached_trains": train_count,
         "cache_age_sec": round(time.time() - _train_cache["timestamp"], 1) if _train_cache["timestamp"] else None,
+        "active_sse_subscribers": len(subscribers),
     }
+
+
+@app.get("/events")
+@app.get("/api/events")
+async def sse_events(request: Request):
+    """Server-Sent Events stream delivering live train telemetry and proximity encounter updates."""
+    client_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    subscribers.add(client_queue)
+
+    async def event_generator():
+        try:
+            train_count = len(_train_cache["geojson"]["features"]) if _train_cache["geojson"] else 0
+            handshake = {
+                "message": "Connected to Highball SSE spatial telemetry bus",
+                "service": "highball-spatial-engine",
+                "active_cams": len(PUBLIC_RAIL_CAMS),
+                "cached_trains": train_count,
+                "timestamp": time.time(),
+            }
+            yield f"event: connected\ndata: {json.dumps(handshake)}\n\n"
+
+            while True:
+                try:
+                    event_type, payload = await asyncio.wait_for(client_queue.get(), timeout=15.0)
+                    yield f"event: {event_type}\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            subscribers.discard(client_queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/events/broadcast")
+async def broadcast_manual_event(payload: Dict[str, Any]):
+    """Dispatches a custom or simulation event over the Highball SSE bus."""
+    event_type = payload.get("event_type", "message")
+    data = payload.get("data", {})
+    broadcast_sse_sync(event_type, data)
+    return {"status": "dispatched", "subscribers": len(subscribers), "event_type": event_type}
 
 
 @app.get("/api/cams")
@@ -410,42 +524,6 @@ async def get_corridors():
             return json.load(f)
     from rail_corridors import generate_corridors_geojson
     return generate_corridors_geojson(str(CORRIDORS_GEOJSON))
-
-
-
-def calculate_fleet_counts(features: List[Dict[str, Any]]) -> Dict[str, int]:
-    """Tallies fleet counts across all transit modes and highspeed vehicles."""
-    counts = {
-        "ground": 0,
-        "amtrak": 0,
-        "subway": 0,
-        "commuter": 0,
-        "bus": 0,
-        "flight": 0,
-        "all": len(features),
-        "highspeed": 0,
-    }
-    for f in features:
-        props = f.get("properties", {})
-        m = props.get("mode", "")
-        if m == "intercity_rail":
-            counts["amtrak"] += 1
-            counts["ground"] += 1
-        elif m in ["subway", "light_rail"]:
-            counts["subway"] += 1
-            counts["ground"] += 1
-        elif m == "commuter_rail":
-            counts["commuter"] += 1
-            counts["ground"] += 1
-        elif m == "bus":
-            counts["bus"] += 1
-            counts["ground"] += 1
-        elif m == "flight":
-            counts["flight"] += 1
-
-        if props.get("speed_mph", 0.0) >= 60.0:
-            counts["highspeed"] += 1
-    return counts
 
 
 @app.get("/api/trains")
@@ -602,7 +680,16 @@ async def get_proximity_events(
                 })
 
     proximity_matches.sort(key=lambda x: x["distance_miles"])
-    encounter_tracker.update(proximity_matches)
+    encounter_changes = encounter_tracker.update(proximity_matches)
+    if proximity_matches:
+        broadcast_sse_sync("proximity", {
+            "timestamp": time.time(),
+            "total_matches": len(proximity_matches),
+            "events": proximity_matches[:10],
+        })
+    if encounter_changes.get("new"):
+        for new_enc in encounter_changes["new"]:
+            broadcast_sse_sync("encounter", new_enc)
     return {
         "timestamp": time.time(),
         "total_matches": len(proximity_matches),

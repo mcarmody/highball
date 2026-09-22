@@ -1074,6 +1074,115 @@ def test_index_html_cam_jump_and_search_invariants():
     assert "nearest_cam" in html
 
 
+def test_encounter_tracker_returns_new_and_completed_sessions():
+    """Verify encounter tracker returns new and completed sessions upon transition."""
+    from encounter_tracker import EncounterTracker
+
+    tracker = EncounterTracker(max_history=10, encounter_radius_miles=5.0)
+    t0 = 1726913800.0
+    ev1 = {
+        "train": {"train_num": "581", "route": "Pacific Surfliner", "speed_mph": 40},
+        "camera": {"cam_id": "cam_fullerton_depot", "name": "Fullerton Depot"},
+        "distance_miles": 2.5,
+        "trajectory": "approaching",
+    }
+    res1 = tracker.update([ev1], timestamp=t0)
+    assert "new" in res1
+    assert "completed" in res1
+    assert len(res1["new"]) == 1
+    assert res1["new"][0]["train_num"] == "581"
+    assert len(res1["completed"]) == 0
+
+    # Train leaves proximity
+    res2 = tracker.update([], timestamp=t0 + 120.0)
+    assert len(res2["new"]) == 0
+    assert len(res2["completed"]) == 1
+    assert res2["completed"][0]["train_num"] == "581"
+    assert res2["completed"][0]["status"] == "completed"
+
+
+@pytest.mark.anyio
+async def test_sse_generator_handshake():
+    """Verify sse_events returns a StreamingResponse with proper media-type, headers, and connected handshake."""
+    from server import sse_events
+    from starlette.requests import Request
+
+    scope = {"type": "http", "method": "GET", "path": "/events", "headers": []}
+    request = Request(scope)
+    resp = await sse_events(request)
+    assert resp.media_type == "text/event-stream"
+    assert resp.headers["Cache-Control"] == "no-cache"
+    assert resp.headers["Connection"] == "keep-alive"
+
+    gen = resp.body_iterator
+    first_chunk = await gen.__anext__()
+    assert "event: connected" in first_chunk
+    assert "highball-spatial-engine" in first_chunk
+    # Clean up generator
+    await gen.aclose()
+
+
+def test_sse_broadcast_dispatch(client):
+    """Verify broadcast_sse_sync and POST /api/events/broadcast dispatch to subscribers."""
+    import asyncio
+    import json
+    from server import broadcast_sse_sync, subscribers
+
+    queue: asyncio.Queue = asyncio.Queue(maxsize=10)
+    subscribers.add(queue)
+
+    try:
+        # Manual broadcast endpoint
+        resp = client.post("/api/events/broadcast", json={
+            "event_type": "telemetry_test",
+            "data": {"test_train": "Amtrak_763", "speed": 65.0}
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "dispatched"
+
+        # Verify queue received message
+        assert not queue.empty()
+        evt_type, payload = queue.get_nowait()
+        assert evt_type == "telemetry_test"
+        data = json.loads(payload)
+        assert data["test_train"] == "Amtrak_763"
+    finally:
+        subscribers.discard(queue)
+
+
+def test_health_active_sse_subscribers(client):
+    """Verify /health endpoint reports active_sse_subscribers."""
+    import asyncio
+    from server import subscribers
+
+    queue: asyncio.Queue = asyncio.Queue(maxsize=10)
+    subscribers.add(queue)
+    try:
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "active_sse_subscribers" in data
+        assert data["active_sse_subscribers"] >= 1
+    finally:
+        subscribers.discard(queue)
+
+
+def test_index_html_sse_invariants():
+    """Verify index.html includes EventSource initialization, SSE event listeners, and live status pill."""
+    from server import INDEX_HTML
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "initSSE" in html
+    assert "new EventSource('/events')" in html
+    assert "addEventListener('connected'" in html
+    assert "addEventListener('telemetry'" in html
+    assert "addEventListener('proximity'" in html
+    assert "addEventListener('encounter'" in html
+    assert "SSE: Live" in html
+    assert "Poll: 15s" in html
+
+
+
 
 
 
