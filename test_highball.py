@@ -458,6 +458,17 @@ def test_get_trains_mode_filter(client, monkeypatch):
     data = resp.json()
     assert data["total_active"] == 2
 
+    # Filter: amtrak / intercity alias
+    resp = client.get("/api/trains?mode=amtrak")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_active"] == 1
+    assert data["features"][0]["properties"]["mode"] == "intercity_rail"
+
+    resp = client.get("/api/trains?mode=intercity")
+    assert resp.status_code == 200
+    assert resp.json()["total_active"] == 1
+
 
 def test_mbta_subway_and_light_rail_parsing():
     """Verify parse_mbta_v3_vehicles classifies heavy rail subways (type 1) and light rail (type 0)."""
@@ -697,6 +708,24 @@ def test_index_html_flight_invariants():
     assert 'data-filter="flight"' in html
     assert "fa-plane" in html
     assert "Altitude:" in html
+
+
+def test_index_html_fleet_pills_invariants():
+    """Verify index.html contains Amtrak filter pill, fleet counter badges, and scoped filter-btn selectors."""
+    from server import INDEX_HTML
+    assert INDEX_HTML.exists()
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    # Amtrak filter button
+    assert 'data-filter="amtrak"' in html
+    assert 'filterTrains(\'amtrak\')' in html
+
+    # Live fleet count badge elements
+    for badge_id in ["count-all", "count-amtrak", "count-subway", "count-commuter", "count-bus", "count-flight", "count-approaching", "count-highspeed"]:
+        assert f'id="{badge_id}"' in html
+
+    # Scoped selector prevents mangling trail-btn or labels-btn
+    assert ".filter-btn[data-filter]" in html
 
 
 

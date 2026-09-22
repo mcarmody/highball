@@ -401,6 +401,8 @@ async def get_trains(
             filtered = [f for f in filtered if f["properties"].get("mode", "") in ["intercity_rail", "commuter_rail"]]
         elif mode_target in ["subway", "metro"]:
             filtered = [f for f in filtered if f["properties"].get("mode", "") in ["subway", "light_rail"]]
+        elif mode_target in ["amtrak", "intercity"]:
+            filtered = [f for f in filtered if f["properties"].get("mode", "") == "intercity_rail"]
         else:
             filtered = [f for f in filtered if f["properties"].get("mode", "").lower() == mode_target]
 

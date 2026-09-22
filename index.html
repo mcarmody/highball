@@ -112,13 +112,14 @@
 
     <!-- Floating Filter Drawer / Quick Filter Pill Bar -->
     <div class="absolute top-3 left-3 right-3 sm:right-auto z-[500] flex overflow-x-auto no-scrollbar gap-1.5 pointer-events-auto pb-1 max-w-full">
-      <button onclick="filterTrains('all')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-600 text-white shadow-sm border border-sky-500 shrink-0" data-filter="all">All Transit</button>
-      <button onclick="filterTrains('subway')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="subway"><i class="fa-solid fa-train-subway text-[10px] mr-1 text-emerald-400"></i>Subway / Metro</button>
-      <button onclick="filterTrains('commuter')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="commuter">Commuter</button>
-      <button onclick="filterTrains('bus')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="bus"><i class="fa-solid fa-bus text-[10px] mr-1 text-rose-400"></i>Bus</button>
-      <button onclick="filterTrains('flight')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="flight"><i class="fa-solid fa-plane text-[10px] mr-1 text-cyan-400"></i>Flights</button>
-      <button onclick="filterTrains('approaching')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="approaching">Closing In (&lt;15 mi)</button>
-      <button onclick="filterTrains('highspeed')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="highspeed">Fast (&gt;60 mph)</button>
+      <button onclick="filterTrains('all')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-600 text-white shadow-sm border border-sky-500 shrink-0" data-filter="all">All Transit <span id="count-all" class="ml-1 px-1.5 py-0.2 rounded-full bg-sky-800/80 text-[10px] text-white"></span></button>
+      <button onclick="filterTrains('amtrak')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="amtrak"><i class="fa-solid fa-train text-[10px] mr-1 text-indigo-400"></i>Amtrak <span id="count-amtrak" class="ml-1 px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-indigo-300 font-mono"></span></button>
+      <button onclick="filterTrains('subway')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="subway"><i class="fa-solid fa-train-subway text-[10px] mr-1 text-emerald-400"></i>Subway / Metro <span id="count-subway" class="ml-1 px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-emerald-400 font-mono"></span></button>
+      <button onclick="filterTrains('commuter')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="commuter">Commuter <span id="count-commuter" class="ml-1 px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-amber-400 font-mono"></span></button>
+      <button onclick="filterTrains('bus')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="bus"><i class="fa-solid fa-bus text-[10px] mr-1 text-rose-400"></i>Bus <span id="count-bus" class="ml-1 px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-rose-400 font-mono"></span></button>
+      <button onclick="filterTrains('flight')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="flight"><i class="fa-solid fa-plane text-[10px] mr-1 text-cyan-400"></i>Flights <span id="count-flight" class="ml-1 px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-cyan-400 font-mono"></span></button>
+      <button onclick="filterTrains('approaching')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="approaching">Closing In (&lt;15 mi) <span id="count-approaching" class="ml-1 px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-sky-400 font-mono"></span></button>
+      <button onclick="filterTrains('highspeed')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="highspeed">Fast (&gt;60 mph) <span id="count-highspeed" class="ml-1 px-1.5 py-0.2 rounded-full bg-slate-800 text-[10px] text-violet-400 font-mono"></span></button>
       <button id="trail-btn" onclick="toggleBreadcrumbs()" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" title="Toggle historical GPS breadcrumb trails">Trails: <span id="trail-status" class="text-emerald-400 font-semibold">ON</span></button>
       <button id="labels-btn" onclick="toggleLabels()" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" title="Cycle city labels: MIN (20%), OFF (0%), ON (70%)">Labels: <span id="labels-status" class="text-slate-400 font-semibold">MIN</span></button>
       <button onclick="resetMapView()" class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-400 hover:text-white border border-slate-800 backdrop-blur shrink-0" title="Recenter USA">
@@ -911,11 +912,50 @@
         proximityEvents.filter(e => e.trajectory === 'approaching').map(e => e.train.train_num)
       );
 
+      // Tally live fleet distribution
+      let countAmtrak = 0;
+      let countSubway = 0;
+      let countCommuter = 0;
+      let countBus = 0;
+      let countFlight = 0;
+      let countHighspeed = 0;
+
+      trainData.forEach(t => {
+        const m = t.properties.mode;
+        if (m === 'intercity_rail') countAmtrak++;
+        else if (m === 'subway' || m === 'light_rail') countSubway++;
+        else if (m === 'commuter_rail') countCommuter++;
+        else if (m === 'bus') countBus++;
+        else if (m === 'flight') countFlight++;
+
+        if ((t.properties.speed_mph || 0) >= 60) countHighspeed++;
+      });
+
+      const elAll = document.getElementById('count-all');
+      if (elAll) elAll.innerText = trainData.length.toLocaleString();
+      const elAmtrak = document.getElementById('count-amtrak');
+      if (elAmtrak) elAmtrak.innerText = countAmtrak.toLocaleString();
+      const elSubway = document.getElementById('count-subway');
+      if (elSubway) elSubway.innerText = countSubway.toLocaleString();
+      const elCommuter = document.getElementById('count-commuter');
+      if (elCommuter) elCommuter.innerText = countCommuter.toLocaleString();
+      const elBus = document.getElementById('count-bus');
+      if (elBus) elBus.innerText = countBus.toLocaleString();
+      const elFlight = document.getElementById('count-flight');
+      if (elFlight) elFlight.innerText = countFlight.toLocaleString();
+      const elApp = document.getElementById('count-approaching');
+      if (elApp) elApp.innerText = approachingTrainIds.size.toLocaleString();
+      const elFast = document.getElementById('count-highspeed');
+      if (elFast) elFast.innerText = countHighspeed.toLocaleString();
+
       trainData.forEach(t => {
         const props = t.properties;
         const coords = t.geometry.coordinates;
 
         // Filtering
+        if (currentFilter === 'amtrak' && props.mode !== 'intercity_rail') {
+          return;
+        }
         if (currentFilter === 'approaching' && !approachingTrainIds.has(props.train_num)) {
           return;
         }
@@ -1162,11 +1202,11 @@
 
     function filterTrains(type) {
       currentFilter = type;
-      document.querySelectorAll('.filter-btn').forEach(btn => {
+      document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
         if (btn.dataset.filter === type) {
-          btn.className = 'filter-btn px-3 py-1 rounded-full text-xs font-medium bg-indigo-600 text-white shadow-sm border border-indigo-500';
+          btn.className = 'filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-600 text-white shadow-sm border border-sky-500 shrink-0';
         } else {
-          btn.className = 'filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur';
+          btn.className = 'filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0';
         }
       });
       renderTrains();
