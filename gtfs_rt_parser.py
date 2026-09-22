@@ -45,8 +45,18 @@ def parse_gtfs_rt_vehicle_positions(feed_data: Dict[str, Any], agency_id: str = 
             continue
 
         trip = v.get("trip") or v.get("Trip") or {}
-        trip_id = str(trip.get("trip_id") or trip.get("TripId") or ent.get("id") or ent.get("Id") or "Transit")
-        route_id = str(trip.get("route_id") or trip.get("RouteId") or "Regional Rail")
+        # Transitland's JSON-RT proxy (used for Metra, Sound Transit) emits
+        # camelCase (tripId/routeId) rather than the snake_case shown in the
+        # docstring example above — checked live 2026-09-21 against real
+        # Metra/Sound Transit feeds, both keys are needed.
+        trip_id = str(
+            trip.get("trip_id") or trip.get("tripId") or trip.get("TripId")
+            or ent.get("id") or ent.get("Id") or "Transit"
+        )
+        route_id = str(
+            trip.get("route_id") or trip.get("routeId") or trip.get("RouteId")
+            or "Regional Rail"
+        )
         speed_mps = pos.get("speed") or pos.get("Speed") or 0.0
         speed_mph = round(speed_mps * 2.23694, 1) if speed_mps is not None else 0.0
         bearing = pos.get("bearing") or pos.get("Bearing")

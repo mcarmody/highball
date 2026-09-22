@@ -139,6 +139,39 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
         except Exception as exc:
             print(f"[Highball] 511 Caltrain fetch warning: {exc}")
 
+    # 4. Chicago Metra Commuter Rail (via Transitland's GTFS-RT JSON proxy)
+    # Onestop ID verified live 2026-09-21 — f-metra~rt is metrarr.com
+    # (Chicago Metra). Do NOT confuse with f-metra~ga~rt, a same-named but
+    # unrelated Columbus, Georgia transit agency that also matches "metra".
+    if TRANSITLAND_API_KEY:
+        try:
+            metra_url = (
+                "https://transit.land/api/v2/rest/feeds/f-metra~rt/"
+                f"download_latest_rt/vehicle_positions.json?apikey={TRANSITLAND_API_KEY}"
+            )
+            resp = requests.get(metra_url, timeout=5.0)
+            if resp.status_code == 200:
+                metra_geojson = parse_gtfs_rt_vehicle_positions(resp.json(), agency_id="Metra")
+                features.extend(metra_geojson.get("features", []))
+        except Exception as exc:
+            print(f"[Highball] Metra (Transitland) fetch warning: {exc}")
+
+    # 5. Sound Transit Link Light Rail / Sounder (via Transitland's proxy)
+    # Onestop ID verified live 2026-09-21 — f-soundtransit~rt, backed by
+    # Puget Sound's OneBusAway GTFS-RT feed.
+    if TRANSITLAND_API_KEY:
+        try:
+            st_url = (
+                "https://transit.land/api/v2/rest/feeds/f-soundtransit~rt/"
+                f"download_latest_rt/vehicle_positions.json?apikey={TRANSITLAND_API_KEY}"
+            )
+            resp = requests.get(st_url, timeout=5.0)
+            if resp.status_code == 200:
+                st_geojson = parse_gtfs_rt_vehicle_positions(resp.json(), agency_id="Sound Transit")
+                features.extend(st_geojson.get("features", []))
+        except Exception as exc:
+            print(f"[Highball] Sound Transit (Transitland) fetch warning: {exc}")
+
     if not features and _train_cache["geojson"]:
         return _train_cache["geojson"]
 
