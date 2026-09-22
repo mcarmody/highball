@@ -69,14 +69,25 @@ _breadcrumb_last_seen: Dict[str, float] = {}
 
 
 def update_breadcrumbs(features: List[Dict[str, Any]], now: float):
-    """Updates historical GPS breadcrumb trails for active trains."""
+    """Updates historical GPS breadcrumb trails for active trains with geographic sanitization."""
     global _breadcrumb_history, _breadcrumb_last_seen
     for feat in features:
         props = feat.get("properties", {})
         coords = feat.get("geometry", {}).get("coordinates", [])
         if len(coords) < 2:
             continue
-        lon, lat = round(float(coords[0]), 5), round(float(coords[1]), 5)
+        try:
+            lon, lat = round(float(coords[0]), 5), round(float(coords[1]), 5)
+        except (ValueError, TypeError):
+            continue
+
+        # Reject Null Island / near-zero glitches and missing fixes
+        if abs(lon) < 1.0 and abs(lat) < 1.0:
+            continue
+        # Restrict to North American transit corridor envelope (lat 18° to 75°, lon -175° to -50°)
+        if not (18.0 <= lat <= 75.0 and -175.0 <= lon <= -50.0):
+            continue
+
         key = str(props.get("id") or props.get("train_num") or "")
         if not key:
             continue
@@ -86,7 +97,14 @@ def update_breadcrumbs(features: List[Dict[str, Any]], now: float):
             _breadcrumb_history[key] = deque(maxlen=15)
 
         history = _breadcrumb_history[key]
-        if not history or (abs(history[-1][0] - lon) > 0.0001 or abs(history[-1][1] - lat) > 0.0001):
+        # Reject teleport jumps > 2.0 degrees (~120 miles in 15-30 seconds)
+        is_teleport = False
+        if history:
+            prev_lon, prev_lat = history[-1]
+            if abs(prev_lon - lon) > 2.0 or abs(prev_lat - lat) > 2.0:
+                is_teleport = True
+
+        if not is_teleport and (not history or (abs(history[-1][0] - lon) > 0.0001 or abs(history[-1][1] - lat) > 0.0001)):
             history.append([lon, lat])
 
         props["breadcrumbs"] = list(history)
@@ -234,10 +252,12 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
 
 
 @app.get("/api/breadcrumbs")
-async def get_breadcrumbs():
+async def get_breadcrumbs(train_id: Optional[str] = None):
     """Returns GeoJSON FeatureCollection of historical GPS breadcrumb polylines for active trains."""
     features = []
     for key, trail in _breadcrumb_history.items():
+        if train_id and key != train_id:
+            continue
         if len(trail) >= 2:
             features.append({
                 "type": "Feature",

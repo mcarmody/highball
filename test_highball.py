@@ -236,7 +236,7 @@ def test_breadcrumbs_endpoint(client):
     update_breadcrumbs(mock_features_2, now=1015.0)
     assert len(mock_features_2[0]["properties"]["breadcrumbs"]) == 2
 
-    # Query /api/breadcrumbs endpoint
+    # Query /api/breadcrumbs endpoint with train_id filter
     resp = client.get("/api/breadcrumbs")
     assert resp.status_code == 200
     data = resp.json()
@@ -246,6 +246,39 @@ def test_breadcrumbs_endpoint(client):
     assert trail["geometry"]["type"] == "LineString"
     assert len(trail["geometry"]["coordinates"]) == 2
     assert trail["properties"]["points_count"] == 2
+
+    # Query with specific train_id filter
+    resp_filtered = client.get("/api/breadcrumbs?train_id=test_train_101")
+    assert resp_filtered.status_code == 200
+    assert resp_filtered.json()["total_trails"] == 1
+
+    resp_nonexistent = client.get("/api/breadcrumbs?train_id=nonexistent_999")
+    assert resp_nonexistent.status_code == 200
+    assert resp_nonexistent.json()["total_trails"] == 0
+
+    # Test Null Island rejection (coords near 0, 0)
+    glitch_features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [0.001, -0.002]},
+            "properties": {"id": "glitch_null_island", "train_num": "000"}
+        }
+    ]
+    update_breadcrumbs(glitch_features, now=1030.0)
+    assert "breadcrumbs" not in glitch_features[0]["properties"]
+
+    # Test teleport jump rejection (>2.0 degrees)
+    teleport_features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-90.0, 35.0]},
+            "properties": {"id": "test_train_101", "train_num": "101"}
+        }
+    ]
+    update_breadcrumbs(teleport_features, now=1045.0)
+    # The jump from -104.95 to -90.0 should be rejected, preserving history length at 2
+    assert len(teleport_features[0]["properties"]["breadcrumbs"]) == 2
+
 
 
 
