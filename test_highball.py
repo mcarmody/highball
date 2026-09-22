@@ -939,6 +939,141 @@ def test_pip_player_and_director_integration(client):
     assert "provider" in cam
 
 
+def test_cam_lookup_nearest_and_downstream_intercept():
+    """Verify find_nearest_camera and get_downstream_camera_intercept in cam_lookup."""
+    from cam_lookup import find_nearest_camera, get_downstream_camera_intercept
+
+    # Coordinates near Fullerton Depot (33.8687, -117.9228)
+    # Heading North (355 deg) -> Approaching Fullerton from South
+    intercept = get_downstream_camera_intercept(33.85, -117.9228, train_heading=355.0, speed_mph=45.0, max_miles=20.0)
+    assert intercept is not None
+    assert intercept["cam_id"] == "cam_fullerton_depot"
+    assert intercept["trajectory"] == "approaching"
+    assert intercept["distance_miles"] < 2.0
+    assert intercept["eta_minutes"] is not None
+    assert intercept["eta_minutes"] > 0.0
+
+    # Nearest camera lookup
+    nearest = find_nearest_camera(33.8687, -117.9228)
+    assert nearest is not None
+    assert nearest["cam_id"] == "cam_fullerton_depot"
+    assert nearest["distance_miles"] == 0.0
+
+
+def test_get_train_by_id_endpoint(client, monkeypatch):
+    """Verify GET /api/trains/{train_id} returns vehicle data, downstream intercept, and nearby cameras."""
+    import server
+
+    mock_geojson = {
+        "type": "FeatureCollection",
+        "timestamp": 1726913800.0,
+        "total_active": 1,
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [-117.9228, 33.85]},
+                "properties": {
+                    "id": "Amtrak_763",
+                    "train_num": "763",
+                    "route": "Pacific Surfliner",
+                    "agency": "Amtrak",
+                    "mode": "intercity_rail",
+                    "speed_mph": 50.0,
+                    "heading": 355.0,
+                    "dest": "Goleta",
+                    "origin": "San Diego",
+                    "timely": "On Time",
+                },
+            }
+        ],
+    }
+
+    monkeypatch.setattr(server, "fetch_live_train_geojson", lambda: mock_geojson)
+
+    # 1. Lookup by full ID
+    resp1 = client.get("/api/trains/Amtrak_763")
+    assert resp1.status_code == 200
+    data1 = resp1.json()
+    assert data1["vehicle"]["properties"]["train_num"] == "763"
+    assert data1["downstream_intercept"] is not None
+    assert data1["downstream_intercept"]["cam_id"] == "cam_fullerton_depot"
+    assert "nearby_cameras" in data1
+    assert len(data1["nearby_cameras"]) >= 1
+
+    # 2. Lookup by train_num string
+    resp2 = client.get("/api/trains/763")
+    assert resp2.status_code == 200
+    assert resp2.json()["vehicle"]["properties"]["route"] == "Pacific Surfliner"
+
+
+def test_get_train_by_id_not_found(client, monkeypatch):
+    """Verify GET /api/trains/{train_id} returns 404 for unknown train."""
+    import server
+
+    mock_geojson = {"type": "FeatureCollection", "timestamp": 1726913800.0, "total_active": 0, "features": []}
+    monkeypatch.setattr(server, "fetch_live_train_geojson", lambda: mock_geojson)
+
+    resp = client.get("/api/trains/nonexistent_9999")
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["detail"].lower()
+
+
+def test_api_trains_attaches_nearest_cam_property(client, monkeypatch):
+    """Verify fetch_live_train_geojson attaches nearest_cam to ground transit features."""
+    import server
+
+    mock_features = [
+        {
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [-117.9228, 33.85]},
+            "properties": {
+                "id": "Amtrak_582",
+                "train_num": "582",
+                "route": "Pacific Surfliner",
+                "mode": "intercity_rail",
+                "speed_mph": 45.0,
+                "heading": 355.0,
+                "origin": "LAX",
+                "dest": "SAN",
+            },
+        }
+    ]
+
+    # Clear cache and mock workers
+    server._train_cache["timestamp"] = 0.0
+    server._train_cache["geojson"] = None
+    monkeypatch.setattr(server, "_fetch_amtrak", lambda: mock_features)
+    monkeypatch.setattr(server, "_fetch_mbta", lambda: [])
+    monkeypatch.setattr(server, "_fetch_caltrain", lambda: [])
+    monkeypatch.setattr(server, "_fetch_metra", lambda: [])
+    monkeypatch.setattr(server, "_fetch_sound_transit", lambda: [])
+    monkeypatch.setattr(server, "_fetch_flights", lambda: [])
+
+    resp = client.get("/api/trains")
+    assert resp.status_code == 200
+    features = resp.json()["features"]
+    assert len(features) == 1
+    props = features[0]["properties"]
+    assert "nearest_cam" in props
+    assert props["nearest_cam"]["cam_id"] == "cam_fullerton_depot"
+    assert props["nearest_cam"]["trajectory"] == "approaching"
+    assert "embed_url" in props["nearest_cam"]
+
+
+def test_index_html_cam_jump_and_search_invariants():
+    """Verify index.html includes search input, search handlers, cam jump buttons, and panToCamCoordinates."""
+    from server import INDEX_HTML
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "transit-search" in html
+    assert "handleTransitSearch" in html
+    assert "jumpToFirstSearchResult" in html
+    assert "panToCamCoordinates" in html
+    assert "Watch in PIP" in html
+    assert "Pan to Cam" in html
+    assert "nearest_cam" in html
+
+
 
 
 

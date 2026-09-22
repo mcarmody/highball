@@ -266,6 +266,52 @@ def find_nearby_cameras(
     return nearby
 
 
+def find_nearest_camera(
+    train_lat: float,
+    train_lon: float,
+    train_heading: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """Returns the single closest registered rail camera regardless of distance."""
+    if not PUBLIC_RAIL_CAMS:
+        return None
+    cams = find_nearby_cameras(train_lat, train_lon, train_heading=train_heading, max_miles=5000.0)
+    return cams[0] if cams else None
+
+
+def get_downstream_camera_intercept(
+    train_lat: float,
+    train_lon: float,
+    train_heading: Optional[float] = None,
+    speed_mph: float = 0.0,
+    max_miles: float = 100.0,
+) -> Optional[Dict[str, Any]]:
+    """Finds the most compelling upcoming downstream camera intercept for a train.
+
+    Prioritizes cameras where the train is approaching (closing in).
+    Computes estimated arrival ETA in minutes if moving.
+    Falls back to the nearest camera if within 25 miles.
+    """
+    candidates = find_nearby_cameras(train_lat, train_lon, train_heading=train_heading, max_miles=max_miles)
+    if not candidates:
+        return None
+
+    # Prioritize approaching cameras
+    approaching = [c for c in candidates if c.get("trajectory") == "approaching"]
+    target = approaching[0] if approaching else (candidates[0] if candidates[0]["distance_miles"] <= 25.0 else None)
+
+    if not target:
+        return None
+
+    target = dict(target)
+    dist = target["distance_miles"]
+    eta_minutes = None
+    if target.get("trajectory") == "approaching" and speed_mph > 5.0:
+        eta_minutes = round((dist / speed_mph) * 60, 1)
+
+    target["eta_minutes"] = eta_minutes
+    return target
+
+
 def export_webcams_geojson(out_path: Optional[str] = None):
     """Exports cameras as GeoJSON Point FeatureCollection for Leaflet."""
     if out_path is None:

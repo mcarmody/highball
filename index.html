@@ -53,8 +53,12 @@
       </div>
     </div>
 
-    <!-- Live Telemetry Stats -->
-    <div class="hidden md:flex items-center space-x-6 text-xs text-slate-400">
+    <!-- Live Telemetry Stats & Transit Search -->
+    <div class="hidden lg:flex items-center space-x-4 text-xs text-slate-400">
+      <div class="relative flex items-center">
+        <i class="fa-solid fa-magnifying-glass absolute left-2.5 text-slate-500 text-[10px]"></i>
+        <input id="transit-search" type="text" placeholder="Search train, route..." class="pl-7 pr-2.5 py-1 rounded bg-slate-950/80 border border-slate-700/80 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition w-44 focus:w-60" oninput="handleTransitSearch(this.value)" onkeydown="if(event.key==='Enter') jumpToFirstSearchResult()" title="Search trains, routes, agencies, or destinations (Press Enter to jump)">
+      </div>
       <div>Active Transit: <span class="font-mono font-medium text-slate-200" id="stat-trains">Polling...</span></div>
       <div>Rail Cams: <span class="font-mono font-medium text-slate-200" id="stat-cams">10 Registered</span></div>
       <div>Active Encounters: <span class="font-mono font-medium text-amber-400" id="stat-encounters">0</span></div>
@@ -1098,6 +1102,17 @@
           return;
         }
 
+        // Live Transit Search Filtering
+        if (transitSearchQuery) {
+          const numStr = String(props.train_num || '').toLowerCase();
+          const routeStr = String(props.route || '').toLowerCase();
+          const agencyStr = String(props.agency || '').toLowerCase();
+          const destStr = String(props.dest || '').toLowerCase();
+          if (!numStr.includes(transitSearchQuery) && !routeStr.includes(transitSearchQuery) && !agencyStr.includes(transitSearchQuery) && !destStr.includes(transitSearchQuery)) {
+            return;
+          }
+        }
+
         // Historical GPS Breadcrumb Trails
         const bKey = props.id || props.train_num;
         if (breadcrumbsEnabled && breadcrumbLayerGroup && props.breadcrumbs && props.breadcrumbs.length >= 2) {
@@ -1148,6 +1163,40 @@
           ? `<div class="text-slate-400 text-[11px]">Altitude: <span class="font-mono text-cyan-300 font-medium">${props.altitude_ft.toLocaleString()} ft</span></div>` 
           : '';
 
+        const cam = props.nearest_cam;
+        let camCardHtml = '';
+        if (cam && cam.distance_miles <= 50.0) {
+          const isApproaching = cam.trajectory === 'approaching';
+          const trajClass = isApproaching 
+            ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' 
+            : (cam.trajectory === 'passing' ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' : 'text-slate-400 bg-slate-800/40 border-slate-700/40');
+          const etaText = (isApproaching && cam.eta_minutes) ? ` · ETA ~${cam.eta_minutes}m` : '';
+
+          camCardHtml = `
+            <div class="mt-2 pt-1.5 border-t border-slate-700/60 bg-slate-950/60 p-2 rounded border border-slate-800/80">
+              <div class="flex items-center justify-between text-[11px] mb-1">
+                <span class="font-semibold text-slate-200 truncate max-w-[125px] flex items-center space-x-1" title="${cam.name}">
+                  <i class="fa-solid fa-video text-indigo-400 text-[10px]"></i>
+                  <span class="truncate">${cam.name}</span>
+                </span>
+                <span class="text-[10px] font-mono px-1.5 py-0.5 rounded border ${trajClass}">
+                  ${cam.distance_miles} mi ${cam.trajectory.toUpperCase()}${etaText}
+                </span>
+              </div>
+              <div class="flex items-center space-x-1.5 mt-1.5">
+                <button onclick="openPipForCam('${(cam.name || '').replace(/'/g, "\\'")}', '${(cam.location || '').replace(/'/g, "\\'")}', '${cam.embed_url || ''}', '${(cam.provider || '').replace(/'/g, "\\'")}', '${cam.stream_url || ''}', 'Trackside Intercept: #${props.train_num}')" class="flex-1 px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-[10px] flex items-center justify-center space-x-1 transition shadow-sm" title="Watch trackside webcam in Picture-in-Picture">
+                  <i class="fa-solid fa-tv text-[9px]"></i>
+                  <span>Watch in PIP</span>
+                </button>
+                <button onclick="panToCamCoordinates(${cam.lat}, ${cam.lon}, '${cam.cam_id}')" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-medium text-[10px] flex items-center justify-center space-x-1 transition" title="Pan map to camera">
+                  <i class="fa-solid fa-crosshairs text-[9px]"></i>
+                  <span>Pan to Cam</span>
+                </button>
+              </div>
+            </div>
+          `;
+        }
+
         const popupHtml = `
           <div class="p-2 space-y-1 text-xs min-w-[210px]">
             <div class="flex items-center justify-between border-b border-slate-700/60 pb-1">
@@ -1163,6 +1212,7 @@
             ${nextStopHtml}
             ${timelyHtml}
             <div class="text-slate-400 text-[11px]">Heading: <span class="font-mono text-slate-200">${props.heading}&deg;</span></div>
+            ${camCardHtml}
           </div>
         `;
         marker.bindPopup(popupHtml);
@@ -1389,6 +1439,47 @@
 
     function resetMapView() {
       map.setView([39.8283, -98.5795], 4);
+    }
+
+    let transitSearchQuery = '';
+    function handleTransitSearch(query) {
+      transitSearchQuery = (query || '').trim().toLowerCase();
+      renderTrains();
+    }
+
+    function jumpToFirstSearchResult() {
+      if (!transitSearchQuery || !trainData.length) return;
+      const match = trainData.find(f => {
+        const p = f.properties || {};
+        const numStr = String(p.train_num || '').toLowerCase();
+        const routeStr = String(p.route || '').toLowerCase();
+        const agencyStr = String(p.agency || '').toLowerCase();
+        const destStr = String(p.dest || '').toLowerCase();
+        return numStr.includes(transitSearchQuery) || routeStr.includes(transitSearchQuery) || agencyStr.includes(transitSearchQuery) || destStr.includes(transitSearchQuery);
+      });
+      if (match && match.geometry && match.geometry.coordinates) {
+        const [lon, lat] = match.geometry.coordinates;
+        map.setView([lat, lon], 10, { animate: true });
+        if (trainLayerGroup) {
+          trainLayerGroup.eachLayer(layer => {
+            if (layer.feature && layer.feature.properties && layer.feature.properties.id === match.properties.id) {
+              layer.openPopup();
+            }
+          });
+        }
+      }
+    }
+
+    function panToCamCoordinates(lat, lon, camId) {
+      if (!map) return;
+      map.setView([lat, lon], 12, { animate: true });
+      if (camLayerGroup) {
+        camLayerGroup.eachLayer(layer => {
+          if (layer.feature && layer.feature.properties && layer.feature.properties.cam_id === camId) {
+            layer.openPopup();
+          }
+        });
+      }
     }
 
     // Floating Trackside Picture-in-Picture (PIP) Controller

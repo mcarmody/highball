@@ -26,6 +26,8 @@ from cam_lookup import (
     PUBLIC_RAIL_CAMS,
     calculate_trajectory_status,
     find_nearby_cameras,
+    find_nearest_camera,
+    get_downstream_camera_intercept,
     haversine_miles,
     parse_heading_degrees,
 )
@@ -306,6 +308,32 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
                 print(f"[Highball] Concurrent transit fetch worker error: {exc}")
 
     if features:
+        for f in features:
+            props = f.get("properties", {})
+            if props.get("mode") != "flight":
+                coords = f.get("geometry", {}).get("coordinates", [])
+                if len(coords) >= 2:
+                    lon, lat = coords[0], coords[1]
+                    intercept = get_downstream_camera_intercept(
+                        lat, lon,
+                        train_heading=props.get("heading"),
+                        speed_mph=props.get("speed_mph", 0.0),
+                        max_miles=50.0,
+                    )
+                    if intercept:
+                        props["nearest_cam"] = {
+                            "cam_id": intercept["cam_id"],
+                            "name": intercept["name"],
+                            "location": intercept["location"],
+                            "distance_miles": intercept["distance_miles"],
+                            "trajectory": intercept["trajectory"],
+                            "eta_minutes": intercept.get("eta_minutes"),
+                            "embed_url": intercept.get("embed_url"),
+                            "stream_url": intercept.get("stream_url"),
+                            "provider": intercept.get("provider"),
+                            "lat": intercept["lat"],
+                            "lon": intercept["lon"],
+                        }
         update_breadcrumbs(features, now)
 
     if not features and _train_cache["geojson"]:
@@ -457,6 +485,43 @@ async def get_trains(
         "total_active": len(filtered),
         "counts": counts,
         "features": filtered,
+    }
+
+
+@app.get("/api/trains/{train_id}")
+async def get_train_by_id(train_id: str):
+    """Retrieve full telemetry, proximity graph, and downstream camera intercept for a specific train or transit vehicle."""
+    trains_geo = fetch_live_train_geojson()
+    target_id = train_id.strip().lower()
+
+    matched = None
+    for feature in trains_geo.get("features", []):
+        props = feature["properties"]
+        feat_id = str(props.get("id", "")).lower()
+        train_num = str(props.get("train_num", "")).lower()
+        callsign = str(props.get("callsign", "")).lower()
+        if target_id in (feat_id, train_num, callsign) or feat_id.endswith(f"_{target_id}"):
+            matched = feature
+            break
+
+    if not matched:
+        raise HTTPException(status_code=404, detail=f"Transit vehicle '{train_id}' not found in active telemetry.")
+
+    coords = matched["geometry"]["coordinates"]
+    lon, lat = coords[0], coords[1]
+    props = matched["properties"]
+    speed = props.get("speed_mph", 0.0)
+    heading = props.get("heading")
+
+    nearby_cams = find_nearby_cameras(lat, lon, train_heading=heading, max_miles=150.0)
+    downstream = get_downstream_camera_intercept(lat, lon, train_heading=heading, speed_mph=speed, max_miles=150.0)
+
+    return {
+        "vehicle": matched,
+        "coordinates": {"lat": lat, "lon": lon},
+        "downstream_intercept": downstream,
+        "nearby_cameras": nearby_cams[:5],
+        "timestamp": time.time(),
     }
 
 
