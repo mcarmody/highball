@@ -35,6 +35,9 @@
     .cam-pulse {
       animation: radar-pulse 2.5s infinite ease-in-out;
     }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0.75rem); }
   </style>
 </head>
 <body class="h-full flex flex-col font-sans antialiased overflow-hidden selection:bg-indigo-500 selection:text-white">
@@ -46,7 +49,7 @@
         <i class="fa-solid fa-train"></i>
       </div>
       <div>
-        <h1 class="text-sm font-semibold tracking-wide text-slate-100 uppercase">Project Highball <span class="text-xs font-normal text-slate-400">· Spatial Transit Ops</span></h1>
+        <h1 class="text-xs sm:text-sm font-mono tracking-wider font-semibold text-slate-100 uppercase">Project Highball <span class="text-[10px] sm:text-xs font-sans text-sky-400 font-normal">· Ops Radar</span></h1>
       </div>
     </div>
 
@@ -68,7 +71,7 @@
         <i class="fa-solid fa-bell"></i>
         <span class="ml-1 hidden sm:inline">Alerts: ON</span>
       </button>
-      <button onclick="toggleSidebar()" class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 flex items-center space-x-1.5 transition">
+      <button onclick="handleEncountersClick()" class="px-2.5 sm:px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 flex items-center space-x-1.5 transition" title="Toggle Cam Encounters Ledger">
         <i class="fa-solid fa-satellite"></i>
         <span>Cam Encounters</span>
         <span id="encounter-badge" class="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 text-[10px] hidden">0</span>
@@ -97,12 +100,12 @@
     </div>
 
     <!-- Floating Filter Drawer / Quick Filter Pill Bar -->
-    <div class="absolute top-4 left-4 z-[500] flex flex-wrap gap-2 pointer-events-auto">
-      <button onclick="filterTrains('all')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-indigo-600 text-white shadow-sm border border-indigo-500" data-filter="all">All Trains</button>
-      <button onclick="filterTrains('approaching')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="approaching">Closing In (&lt;15 mi)</button>
-      <button onclick="filterTrains('highspeed')" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" data-filter="highspeed">Fast (&gt;60 mph)</button>
-      <button id="trail-btn" onclick="toggleBreadcrumbs()" class="filter-btn px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur" title="Toggle historical GPS breadcrumb trails">Trails: <span id="trail-status" class="text-emerald-400 font-semibold">ON</span></button>
-      <button onclick="resetMapView()" class="px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 text-slate-400 hover:text-white border border-slate-800 backdrop-blur" title="Recenter USA">
+    <div class="absolute top-3 left-3 right-3 sm:right-auto z-[500] flex overflow-x-auto no-scrollbar gap-1.5 pointer-events-auto pb-1 max-w-full">
+      <button onclick="filterTrains('all')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-sky-600 text-white shadow-sm border border-sky-500 shrink-0" data-filter="all">All Trains</button>
+      <button onclick="filterTrains('approaching')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="approaching">Closing In (&lt;15 mi)</button>
+      <button onclick="filterTrains('highspeed')" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" data-filter="highspeed">Fast (&gt;60 mph)</button>
+      <button id="trail-btn" onclick="toggleBreadcrumbs()" class="filter-btn px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-300 hover:text-white border border-slate-800 backdrop-blur shrink-0" title="Toggle historical GPS breadcrumb trails">Trails: <span id="trail-status" class="text-emerald-400 font-semibold">ON</span></button>
+      <button onclick="resetMapView()" class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-slate-900/90 text-slate-400 hover:text-white border border-slate-800 backdrop-blur shrink-0" title="Recenter USA">
         <i class="fa-solid fa-arrows-to-circle"></i> Recenter
       </button>
     </div>
@@ -142,6 +145,47 @@
       </div>
     </aside>
 
+    <!-- Mobile Bottom Sheet: Ops Radar Proximity Ledger (< md) -->
+    <div id="mobile-bottom-sheet" class="md:hidden fixed bottom-0 left-0 right-0 z-[600] bg-slate-900/95 border-t border-sky-500/40 backdrop-blur-md shadow-[0_-8px_25px_rgba(14,165,233,0.2)] transition-all duration-300 ease-in-out flex flex-col rounded-t-2xl max-h-[75vh]" style="height: 72px; transition: height 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+      <!-- Handle & Peek Bar -->
+      <div onclick="toggleMobileBottomSheet()" class="w-full h-[72px] px-4 pt-2 pb-2.5 flex flex-col justify-between items-center cursor-pointer select-none border-b border-slate-800/50 shrink-0 bg-slate-900/90">
+        <div class="w-10 h-1 rounded-full bg-sky-400/50 mb-2"></div>
+        <div class="w-full flex items-center justify-between text-xs">
+          <div class="flex items-center space-x-2 truncate mr-2">
+            <span class="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0"></span>
+            <span class="font-mono text-slate-200 font-semibold truncate" id="sheet-peek-title">Scanning Spatial Corridors</span>
+          </div>
+          <div class="flex items-center space-x-2 shrink-0">
+            <span id="sheet-peek-badge" class="px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-mono text-[10px]">0 In-Zone</span>
+            <i id="sheet-peek-chevron" class="fa-solid fa-chevron-up text-slate-400 text-xs transition-transform"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Expandable Body -->
+      <div class="flex-1 overflow-hidden flex flex-col pb-safe">
+        <!-- Navigation Tabs: Active vs Completed History -->
+        <div class="px-4 pt-2 flex space-x-4 border-b border-slate-800 bg-slate-950/60 shrink-0">
+          <button id="sheet-tab-active" onclick="switchSheetTab('active')" class="pb-2 text-xs font-semibold border-b-2 border-sky-500 text-sky-400 flex items-center space-x-1.5 transition">
+            <i class="fa-solid fa-radar text-[11px]"></i>
+            <span>Active In-Zone</span>
+            <span id="sheet-count-active" class="px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-300 text-[10px]">0</span>
+          </button>
+          <button id="sheet-tab-history" onclick="switchSheetTab('history')" class="pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition">
+            <i class="fa-solid fa-clock-rotate-left text-[11px]"></i>
+            <span>Flyby History</span>
+            <span id="sheet-count-history" class="px-1.5 py-0.2 rounded-full bg-slate-800 text-slate-400 text-[10px]">0</span>
+          </button>
+        </div>
+
+        <div id="sheet-encounters-list" class="flex-1 overflow-y-auto p-3 space-y-2">
+          <!-- Populated synchronously from proximityEvents -->
+        </div>
+        <div id="sheet-history-list" class="flex-1 overflow-y-auto p-3 space-y-2 hidden">
+          <!-- Populated synchronously from historyEvents -->
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- Video Cam-Jump Modal -->
@@ -218,6 +262,51 @@
     let currentSidebarTab = 'active';
     let currentFilter = 'all';
     let sidebarOpen = false;
+
+    // Mobile Bottom Sheet (Ops Radar Proximity Ledger)
+    let bottomSheetExpanded = false;
+    let currentSheetTab = 'active';
+
+    function toggleMobileBottomSheet() {
+      bottomSheetExpanded = !bottomSheetExpanded;
+      const sheet = document.getElementById('mobile-bottom-sheet');
+      const chevron = document.getElementById('sheet-peek-chevron');
+      if (bottomSheetExpanded) {
+        sheet.style.height = '75vh';
+        if (chevron) chevron.className = 'fa-solid fa-chevron-down text-slate-400 text-xs transition-transform';
+      } else {
+        sheet.style.height = '72px';
+        if (chevron) chevron.className = 'fa-solid fa-chevron-up text-slate-400 text-xs transition-transform';
+      }
+    }
+
+    function switchSheetTab(tab) {
+      currentSheetTab = tab;
+      const btnActive = document.getElementById('sheet-tab-active');
+      const btnHistory = document.getElementById('sheet-tab-history');
+      const listActive = document.getElementById('sheet-encounters-list');
+      const listHistory = document.getElementById('sheet-history-list');
+
+      if (tab === 'active') {
+        if (btnActive) btnActive.className = 'pb-2 text-xs font-semibold border-b-2 border-sky-500 text-sky-400 flex items-center space-x-1.5 transition';
+        if (btnHistory) btnHistory.className = 'pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition';
+        if (listActive) listActive.classList.remove('hidden');
+        if (listHistory) listHistory.classList.add('hidden');
+      } else {
+        if (btnHistory) btnHistory.className = 'pb-2 text-xs font-semibold border-b-2 border-sky-500 text-sky-400 flex items-center space-x-1.5 transition';
+        if (btnActive) btnActive.className = 'pb-2 text-xs font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center space-x-1.5 transition';
+        if (listHistory) listHistory.classList.remove('hidden');
+        if (listActive) listActive.classList.add('hidden');
+      }
+    }
+
+    function handleEncountersClick() {
+      if (window.innerWidth < 768) {
+        toggleMobileBottomSheet();
+      } else {
+        toggleSidebar();
+      }
+    }
 
     // Initialize Leaflet Map
     function initMap() {
@@ -656,12 +745,27 @@
 
     function renderEncounterList() {
       const container = document.getElementById('encounters-list');
+      const sheetContainer = document.getElementById('sheet-encounters-list');
+      const sheetTitle = document.getElementById('sheet-peek-title');
+      const sheetBadge = document.getElementById('sheet-peek-badge');
+      const sheetCount = document.getElementById('sheet-count-active');
+
+      if (sheetCount) sheetCount.innerText = proximityEvents.length;
+      if (sheetBadge) sheetBadge.innerText = `${proximityEvents.length} In-Zone`;
+
       if (proximityEvents.length === 0) {
         container.innerHTML = `<div class="text-center py-8 text-xs text-slate-500">No trains within 15 miles of registered webcams.</div>`;
+        if (sheetContainer) sheetContainer.innerHTML = `<div class="text-center py-8 text-xs text-slate-500">No trains within 15 miles of registered webcams.</div>`;
+        if (sheetTitle) sheetTitle.innerText = 'Scanning Spatial Corridors';
         return;
       }
 
-      container.innerHTML = proximityEvents.map(evt => {
+      if (sheetTitle && proximityEvents[0]) {
+        const top = proximityEvents[0];
+        sheetTitle.innerHTML = `<span class="text-sky-300 font-semibold">Train #${top.train.train_num}</span> → ${top.camera.name} (${top.distance_miles} mi)`;
+      }
+
+      const htmlCards = proximityEvents.map(evt => {
         let badgeClass = "bg-slate-700/50 text-slate-400";
         let label = "PASSING";
         if (evt.trajectory === "approaching") {
@@ -696,6 +800,8 @@
           </div>
         `;
       }).join('');
+      container.innerHTML = htmlCards;
+      if (sheetContainer) sheetContainer.innerHTML = htmlCards;
     }
 
     function switchSidebarTab(tab) {
@@ -723,13 +829,18 @@
 
     function renderHistoryList() {
       const container = document.getElementById('history-list');
+      const sheetContainer = document.getElementById('sheet-history-list');
+      const sheetHistoryCount = document.getElementById('sheet-count-history');
+      if (sheetHistoryCount) sheetHistoryCount.innerText = historyEvents ? historyEvents.length : 0;
+
       if (!container) return;
       if (!historyEvents || historyEvents.length === 0) {
         container.innerHTML = `<div class="text-center py-8 text-xs text-slate-500">No completed flybys logged yet.</div>`;
+        if (sheetContainer) sheetContainer.innerHTML = `<div class="text-center py-8 text-xs text-slate-500">No completed flybys logged yet.</div>`;
         return;
       }
 
-      container.innerHTML = historyEvents.map(evt => {
+      const historyHtml = historyEvents.map(evt => {
         const durationSec = evt.duration_seconds || 0;
         const durationStr = durationSec >= 60 
           ? `${Math.floor(durationSec / 60)}m ${Math.round(durationSec % 60)}s`

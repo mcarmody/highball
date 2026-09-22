@@ -330,6 +330,12 @@ def test_index_html_invariants():
     assert "createTrainIcon" in html
     assert "renderTrains" in html
 
+    # Ops Radar mobile architecture invariants
+    assert "Ops Radar" in html
+    assert "mobile-bottom-sheet" in html
+    assert "sheet-encounters-list" in html
+    assert "toggleMobileBottomSheet" in html
+
 
 
 
