@@ -1257,6 +1257,120 @@ def test_index_html_corridor_density_invariants():
     assert "Mainline Rail Corridors" in html
 
 
+def test_consist_synthesis_deterministic():
+    """Verify consist synthesis deterministically derives equipment specs and axle counts."""
+    from consist_detector import synthesize_consist_for_train
+
+    # Acela express
+    c_acela = synthesize_consist_for_train("2150", "Acela Express", "Amtrak")
+    assert c_acela["train_type"] == "High-Speed Rail"
+    assert c_acela["locomotive_count"] == 2
+    assert c_acela["car_count"] == 6
+    assert c_acela["total_axles"] == 32
+    assert c_acela["total_units"] == 8
+    assert c_acela["total_horsepower"] == 12000
+
+    # Repeating call produces identical results
+    c_acela_2 = synthesize_consist_for_train("2150", "Acela Express", "Amtrak", timestamp=c_acela["timestamp"])
+    assert c_acela == c_acela_2
+
+    # Long-distance transcon (California Zephyr)
+    c_zephyr = synthesize_consist_for_train("5", "California Zephyr", "Amtrak")
+    assert c_zephyr["train_type"] == "Long-Distance Transcon"
+    assert c_zephyr["locomotive_count"] == 2
+    assert c_zephyr["total_units"] >= 9
+    assert c_zephyr["total_axles"] >= 36
+
+    # Unit breakdown properties
+    u0 = c_zephyr["units"][0]
+    assert u0["category"] == "locomotive"
+    assert u0["axles"] == 4
+    assert u0["weight_tons"] > 0
+    assert "road_number" in u0
+
+
+def test_defect_detector_radio_report():
+    """Verify trackside defect detector generates authentic radio telemetry and axle counts."""
+    from cam_lookup import PUBLIC_RAIL_CAMS
+    from consist_detector import generate_defect_report, synthesize_consist_for_train
+
+    cam = PUBLIC_RAIL_CAMS[0]  # Horseshoe curve
+    consist = synthesize_consist_for_train("42", "Pennsylvanian", "Amtrak", speed_mph=52.0)
+    rep = generate_defect_report(cam, "42", speed_mph=52.0, consist_data=consist)
+
+    assert rep["detector_type"] == "Hotbox & Dragging Equipment Detector (HBD/DED)"
+    assert "Horseshoe Curve" in rep["station_name"]
+    assert rep["operator"] == "NORFOLK SOUTHERN"
+    assert rep["milepost"] == "MP 242.0"
+    assert rep["track"] in [1, 2]
+    assert rep["axle_count"] == consist["total_axles"]
+    assert rep["defects_detected"] is False
+    assert "[RADIO TONES]" in rep["radio_transcript"]
+    assert "NORFOLK SOUTHERN DETECTOR" in rep["radio_transcript"]
+    assert "DETECTOR OUT" in rep["radio_transcript"]
+
+
+def test_api_consists_endpoints(client):
+    """Verify /api/consists and /api/consists/{train_num} endpoints."""
+    resp = client.get("/api/consists")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "total_trains" in data
+    assert "total_locomotives" in data
+    assert "total_cars" in data
+    assert "total_units" in data
+    assert "total_axles" in data
+    assert "total_horsepower" in data
+    assert "total_weight_tons" in data
+    assert "motive_power_distribution" in data
+    assert "car_type_distribution" in data
+    assert "trains" in data
+    assert isinstance(data["trains"], list)
+
+    # Detailed consist endpoint
+    resp_detail = client.get("/api/consists/5")
+    assert resp_detail.status_code == 200
+    detail = resp_detail.json()
+    assert "consist" in detail
+    assert detail["consist"]["train_num"] == "5"
+    assert "units" in detail["consist"]
+    assert len(detail["consist"]["units"]) > 0
+
+
+def test_api_defect_detector_endpoints(client):
+    """Verify /api/defect-detectors/{cam_id} endpoints."""
+    resp = client.get("/api/defect-detectors/cam_horseshoe_curve")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["cam_id"] == "cam_horseshoe_curve"
+    assert "Horseshoe Curve" in data["camera_name"]
+    assert data["milepost"] == "MP 242.0"
+    assert "detector_report" in data
+    assert "radio_transcript" in data["detector_report"]
+
+    # 404 for nonexistent camera
+    resp_404 = client.get("/api/defect-detectors/nonexistent_fake_cam_99")
+    assert resp_404.status_code == 404
+
+
+def test_index_html_consist_invariants():
+    """Verify index.html contains consists toggle, sidebar, and telemetry inspection logic."""
+    from server import INDEX_HTML
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert "consists-toggle-btn" in html
+    assert "consists-sidebar" in html
+    assert "toggleConsistsDrawer" in html
+    assert "showConsistsFleetOverview" in html
+    assert "openConsistDetail" in html
+    assert "/api/consists" in html
+    assert "Fleet Consists & Rolling Stock" in html
+    assert "Automated Defect Detector" in html
+
+
+
 
 
 

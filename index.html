@@ -84,6 +84,11 @@
         <span>Corridors</span>
         <span id="corridors-count-badge" class="ml-1 px-1.5 py-0.2 rounded-full bg-indigo-500/20 text-indigo-300 text-[10px]">16</span>
       </button>
+      <button id="consists-toggle-btn" onclick="toggleConsistsDrawer()" class="px-2.5 sm:px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 flex items-center space-x-1.5 transition" title="Toggle Fleet Consists & Rolling Stock">
+        <i class="fa-solid fa-train text-amber-400"></i>
+        <span>Consists</span>
+        <span id="consists-count-badge" class="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 text-[10px]">Fleet</span>
+      </button>
       <button onclick="handleEncountersClick()" class="px-2.5 sm:px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 flex items-center space-x-1.5 transition" title="Toggle Cam Encounters Ledger">
         <i class="fa-solid fa-satellite"></i>
         <span>Cam Encounters</span>
@@ -194,6 +199,28 @@
 
       <!-- Corridor Drawer Content (Density Overview vs Detail View) -->
       <div id="corridor-content" class="flex-1 overflow-y-auto flex flex-col p-3 space-y-3">
+        <!-- Dynamically rendered -->
+      </div>
+    </aside>
+
+    <!-- Slide-Over Consists & Rolling Stock Drawer -->
+    <aside id="consists-sidebar" class="absolute top-0 right-0 h-full w-80 md:w-96 bg-slate-900/95 backdrop-blur border-l border-amber-500/40 z-[510] transform translate-x-full transition-transform duration-300 ease-in-out flex flex-col shadow-2xl">
+      <!-- Consists Drawer Header -->
+      <div class="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
+        <div class="flex items-center space-x-2 truncate mr-2">
+          <button id="consist-back-btn" onclick="showConsistsFleetOverview()" class="hidden text-slate-400 hover:text-slate-200 p-1 mr-1 text-xs" title="Back to Fleet Overview">
+            <i class="fa-solid fa-arrow-left"></i>
+          </button>
+          <i class="fa-solid fa-train text-amber-400 text-xs shrink-0"></i>
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-200 truncate" id="consists-sidebar-title">Fleet Consists & Rolling Stock</h2>
+        </div>
+        <button onclick="closeConsistsDrawer()" class="text-slate-400 hover:text-slate-200 p-1 text-xs shrink-0">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Consists Drawer Content -->
+      <div id="consists-content" class="flex-1 overflow-y-auto flex flex-col p-3 space-y-3">
         <!-- Dynamically rendered -->
       </div>
     </aside>
@@ -1253,6 +1280,12 @@
             ${timelyHtml}
             <div class="text-slate-400 text-[11px]">Heading: <span class="font-mono text-slate-200">${props.heading}&deg;</span></div>
             ${camCardHtml}
+            ${!isFlight ? `
+            <button onclick="openConsistDetail('${props.train_num}')" class="mt-1.5 w-full px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-medium text-[10px] flex items-center justify-center space-x-1.5 transition" title="Inspect Rolling Stock Consist & Defect Detector Telemetry">
+              <i class="fa-solid fa-train text-amber-400 text-[10px]"></i>
+              <span>Inspect Consist</span>
+            </button>
+            ` : ''}
           </div>
         `;
         marker.bindPopup(popupHtml);
@@ -1814,6 +1847,7 @@
 
     async function openCorridorDetail(corridorId) {
       if (sidebarOpen) toggleSidebar();
+      if (consistsSidebarOpen) closeConsistsDrawer();
       corridorSidebarOpen = true;
       const sidebar = document.getElementById('corridor-sidebar');
       if (sidebar) sidebar.classList.remove('translate-x-full');
@@ -1982,11 +2016,275 @@
       }
     }
 
+    let consistsSidebarOpen = false;
+    let consistsDataCache = null;
+
+    function toggleConsistsDrawer() {
+      if (consistsSidebarOpen) {
+        closeConsistsDrawer();
+      } else {
+        if (sidebarOpen) toggleSidebar();
+        if (corridorSidebarOpen) closeCorridorDetail();
+        consistsSidebarOpen = true;
+        const sidebar = document.getElementById('consists-sidebar');
+        if (sidebar) sidebar.classList.remove('translate-x-full');
+        showConsistsFleetOverview();
+      }
+    }
+
+    function closeConsistsDrawer() {
+      consistsSidebarOpen = false;
+      const sidebar = document.getElementById('consists-sidebar');
+      if (sidebar) sidebar.classList.add('translate-x-full');
+    }
+
+    async function showConsistsFleetOverview() {
+      const title = document.getElementById('consists-sidebar-title');
+      const backBtn = document.getElementById('consist-back-btn');
+      const content = document.getElementById('consists-content');
+      if (title) title.innerText = 'Fleet Consists & Rolling Stock';
+      if (backBtn) backBtn.classList.add('hidden');
+      if (!content) return;
+
+      content.innerHTML = `
+        <div class="flex items-center justify-center py-12 text-slate-500 text-xs space-x-2">
+          <i class="fa-solid fa-spinner fa-spin text-amber-400"></i>
+          <span>Retrieving consist telemetry...</span>
+        </div>
+      `;
+
+      try {
+        const resp = await fetch('/api/consists');
+        if (!resp.ok) throw new Error('Failed to load fleet consists');
+        const data = await resp.json();
+        consistsDataCache = data;
+
+        const badge = document.getElementById('consists-count-badge');
+        if (badge) badge.innerText = `${data.total_units || 0} Units`;
+
+        let html = `
+          <!-- Fleet Totals Banner -->
+          <div class="grid grid-cols-3 gap-2 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 text-center">
+            <div>
+              <div class="text-[10px] text-slate-400 uppercase font-mono">Total Units</div>
+              <div class="text-sm font-bold text-amber-400 font-mono">${(data.total_units || 0).toLocaleString()}</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400 uppercase font-mono">Total Axles</div>
+              <div class="text-sm font-bold text-slate-100 font-mono">${(data.total_axles || 0).toLocaleString()}</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400 uppercase font-mono">Horsepower</div>
+              <div class="text-[11px] font-semibold text-emerald-400 truncate font-mono">${((data.total_horsepower || 0) / 1000).toFixed(1)}k HP</div>
+            </div>
+          </div>
+
+          <!-- Secondary Metrics -->
+          <div class="grid grid-cols-2 gap-2 text-[10px]">
+            <div class="bg-slate-950/40 p-2 rounded border border-slate-800/80">
+              <span class="text-slate-400 block text-[9px] uppercase font-mono">Motive Power</span>
+              <span class="font-mono text-slate-200 font-medium">${data.total_locomotives || 0} Locomotives</span>
+            </div>
+            <div class="bg-slate-950/40 p-2 rounded border border-slate-800/80">
+              <span class="text-slate-400 block text-[9px] uppercase font-mono">Coaches & Freight</span>
+              <span class="font-mono text-slate-200 font-medium">${data.total_cars || 0} Rolling Cars</span>
+            </div>
+          </div>
+
+          <div class="text-[11px] text-slate-400 font-mono uppercase tracking-wider px-1 pt-1 flex items-center justify-between">
+            <span>Active Rail Consists</span>
+            <span class="text-[10px] text-slate-500">${(data.trains || []).length} In Transit</span>
+          </div>
+
+          <div class="space-y-2">
+        `;
+
+        (data.trains || []).forEach(t => {
+          html += `
+            <div onclick="openConsistDetail('${t.train_num}')" class="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800/80 hover:border-amber-500/50 hover:bg-slate-800/40 transition cursor-pointer group">
+              <div class="flex items-center justify-between mb-1">
+                <div class="flex items-center space-x-1.5 truncate mr-2">
+                  <span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-semibold">#${t.train_num}</span>
+                  <span class="text-xs font-semibold text-slate-200 group-hover:text-amber-300 transition truncate">${t.route || t.agency}</span>
+                </div>
+                <span class="px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono text-[9px] shrink-0">${t.train_type}</span>
+              </div>
+              <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono pt-1">
+                <span class="truncate text-slate-500">${t.lead_locomotive}</span>
+                <div class="flex items-center space-x-2 shrink-0">
+                  <span class="text-amber-400 font-medium">${t.total_units} units</span>
+                  <span>${t.total_axles} axles</span>
+                  <span>${t.total_weight_tons}t</span>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        html += `</div>`;
+        content.innerHTML = html;
+      } catch (err) {
+        content.innerHTML = `
+          <div class="p-4 text-center text-xs text-rose-400 bg-rose-500/10 rounded-lg border border-rose-500/20">
+            <i class="fa-solid fa-triangle-exclamation mb-1 text-base"></i>
+            <div>Error loading consist telemetry: ${err.message}</div>
+          </div>
+        `;
+      }
+    }
+
+    async function openConsistDetail(trainNum) {
+      if (sidebarOpen) toggleSidebar();
+      if (corridorSidebarOpen) closeCorridorDetail();
+      consistsSidebarOpen = true;
+      const sidebar = document.getElementById('consists-sidebar');
+      if (sidebar) sidebar.classList.remove('translate-x-full');
+
+      const title = document.getElementById('consists-sidebar-title');
+      const backBtn = document.getElementById('consist-back-btn');
+      const content = document.getElementById('consists-content');
+
+      if (backBtn) backBtn.classList.remove('hidden');
+      if (title) title.innerText = `Train #${trainNum} Consist`;
+
+      if (!content) return;
+      content.innerHTML = `
+        <div class="flex items-center justify-center py-12 text-slate-500 text-xs space-x-2">
+          <i class="fa-solid fa-spinner fa-spin text-amber-400"></i>
+          <span>Inspecting consist & rolling stock...</span>
+        </div>
+      `;
+
+      try {
+        const resp = await fetch(`/api/consists/${trainNum}`);
+        if (!resp.ok) throw new Error('Consist not found');
+        const data = await resp.json();
+        const c = data.consist;
+
+        let html = `
+          <!-- Train Meta Banner -->
+          <div class="p-3 rounded-lg bg-slate-950/70 border border-slate-800 space-y-2.5">
+            <div class="flex items-center justify-between text-xs">
+              <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px] font-semibold">${c.agency}</span>
+              <span class="text-slate-400 text-[10px] font-mono">${c.train_type}</span>
+            </div>
+            <div class="text-sm font-semibold text-slate-100 leading-snug">
+              Train #${c.train_num} · ${c.route}
+            </div>
+            <div class="grid grid-cols-4 gap-1.5 text-center pt-1 border-t border-slate-800/80 font-mono text-[10px]">
+              <div>
+                <span class="text-slate-500 text-[9px] uppercase block">Units</span>
+                <span class="text-amber-400 font-bold">${c.total_units}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 text-[9px] uppercase block">Axles</span>
+                <span class="text-slate-200 font-bold">${c.total_axles}</span>
+              </div>
+              <div>
+                <span class="text-slate-500 text-[9px] uppercase block">Length</span>
+                <span class="text-slate-200 font-bold">${c.total_length_ft} ft</span>
+              </div>
+              <div>
+                <span class="text-slate-500 text-[9px] uppercase block">Weight</span>
+                <span class="text-emerald-400 font-bold">${c.total_weight_tons}t</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Automated Defect Detector (HBD/DED) Radio Telemetry Box -->
+          <div class="p-3 rounded-lg bg-slate-950/90 border border-emerald-500/40 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-mono font-semibold uppercase tracking-wider text-emerald-400 flex items-center space-x-1.5">
+                <i class="fa-solid fa-tower-broadcast text-emerald-400 text-[10px] animate-pulse"></i>
+                <span>Automated Defect Detector (HBD/DED)</span>
+              </span>
+              <span class="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[9px] font-bold">
+                ${data.defect_report ? data.defect_report.defect_summary : 'NOMINAL'}
+              </span>
+            </div>
+        `;
+
+        if (data.defect_report) {
+          const dr = data.defect_report;
+          html += `
+            <div class="text-[11px] font-mono text-slate-300 space-y-1">
+              <div class="flex justify-between text-[10px] text-slate-400 border-b border-slate-800 pb-1">
+                <span>Station: <span class="text-slate-200">${dr.station_name}</span></span>
+                <span>${dr.milepost} · Trk ${dr.track}</span>
+              </div>
+              <div class="p-2 rounded bg-slate-900 border border-slate-800 text-[10px] text-emerald-300 font-mono leading-relaxed mt-1">
+                ${dr.radio_transcript}
+              </div>
+            </div>
+          `;
+        } else {
+          html += `
+            <div class="text-[10px] text-slate-500 font-mono">
+              Consist calibrated. Awaiting next mainline defect detector pass.
+            </div>
+          `;
+        }
+
+        html += `
+          </div>
+
+          <!-- Rolling Stock Consist Sequence Strip -->
+          <div class="space-y-2 pt-1">
+            <div class="flex items-center justify-between text-[11px] font-mono uppercase tracking-wider text-slate-400 px-1">
+              <span>Rolling Stock Sequence (${c.total_units} Units)</span>
+              <span class="text-[10px] text-amber-400">${c.total_horsepower ? (c.total_horsepower + ' HP') : ''}</span>
+            </div>
+            <div class="space-y-1.5">
+        `;
+
+        c.units.forEach(u => {
+          const isLoco = u.category === 'locomotive';
+          const cardBorder = isLoco ? 'border-amber-500/40 bg-amber-950/20' : 'border-slate-800 bg-slate-950/80';
+          const badgeClass = isLoco ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-800 text-slate-300';
+
+          html += `
+            <div class="p-2 rounded-lg border ${cardBorder} flex items-center justify-between text-xs transition">
+              <div class="flex items-center space-x-2.5 truncate mr-2">
+                <span class="text-base shrink-0">${u.glyph || '🚃'}</span>
+                <div class="truncate">
+                  <div class="font-semibold text-slate-200 truncate text-[11px]">${u.name}</div>
+                  <div class="text-[9px] font-mono text-slate-500 flex items-center space-x-1.5">
+                    <span>Pos ${u.sequence}</span>
+                    <span>·</span>
+                    <span>Road #${u.road_number}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="text-right shrink-0 font-mono text-[10px]">
+                <span class="px-1.5 py-0.2 rounded ${badgeClass} text-[9px] font-semibold">${u.axles} Axles</span>
+                <div class="text-slate-400 text-[9px] mt-0.5">${u.weight_tons}t · ${u.length_ft}ft</div>
+              </div>
+            </div>
+          `;
+        });
+
+        html += `
+            </div>
+          </div>
+        `;
+
+        content.innerHTML = html;
+      } catch (err) {
+        content.innerHTML = `
+          <div class="p-4 text-center text-xs text-rose-400 bg-rose-500/10 rounded-lg border border-rose-500/20">
+            <i class="fa-solid fa-triangle-exclamation mb-1 text-base"></i>
+            <div>Error loading consist details: ${err.message}</div>
+          </div>
+        `;
+      }
+    }
+
     function toggleSidebar() {
       sidebarOpen = !sidebarOpen;
       const sidebar = document.getElementById('encounter-sidebar');
       if (sidebarOpen) {
         if (corridorSidebarOpen) closeCorridorDetail();
+        if (consistsSidebarOpen) closeConsistsDrawer();
         sidebar.classList.remove('translate-x-full');
       } else {
         sidebar.classList.add('translate-x-full');

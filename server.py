@@ -35,6 +35,7 @@ from cam_lookup import (
 from encounter_tracker import EncounterTracker
 from gtfs_rt_parser import parse_gtfs_rt_vehicle_positions, parse_mbta_v3_vehicles
 from opensky_parser import parse_opensky_states
+from consist_detector import synthesize_consist_for_train, generate_defect_report
 
 BASE_DIR = Path(__file__).parent
 INDEX_HTML = BASE_DIR / "index.html"
@@ -768,6 +769,183 @@ async def get_director():
     from auto_director import select_director_camera
     return select_director_camera(events)
 
+
+@app.get("/api/consists")
+async def get_consists_summary():
+    """Returns fleet-wide rolling stock inventory and consist metrics across active rail services."""
+    trains_geo = fetch_live_train_geojson()
+    rail_features = [
+        f for f in trains_geo.get("features", [])
+        if f.get("properties", {}).get("mode") != "flight"
+    ]
+
+    total_locomotives = 0
+    total_cars = 0
+    total_axles = 0
+    total_horsepower = 0
+    total_tonnage = 0
+    motive_power_dist: Dict[str, int] = {}
+    car_type_dist: Dict[str, int] = {}
+    train_summaries = []
+
+    longest_consist = None
+    heaviest_consist = None
+
+    for feat in rail_features:
+        props = feat.get("properties", {})
+        t_num = str(props.get("train_num") or props.get("id") or "0")
+        route = props.get("route") or props.get("route_name") or ""
+        agency = props.get("agency") or "Amtrak"
+        speed = float(props.get("speed_mph") or 0.0)
+
+        consist = synthesize_consist_for_train(t_num, route=route, agency=agency, speed_mph=speed)
+
+        total_locomotives += consist["locomotive_count"]
+        total_cars += consist["car_count"]
+        total_axles += consist["total_axles"]
+        total_horsepower += consist["total_horsepower"]
+        total_tonnage += consist["total_weight_tons"]
+
+        for u in consist["units"]:
+            cat = u["category"]
+            uid = u["unit_id"]
+            if cat == "locomotive":
+                motive_power_dist[uid] = motive_power_dist.get(uid, 0) + 1
+            else:
+                car_type_dist[cat] = car_type_dist.get(cat, 0) + 1
+
+        summary_entry = {
+            "train_num": t_num,
+            "route": route,
+            "agency": agency,
+            "train_type": consist["train_type"],
+            "locomotive_count": consist["locomotive_count"],
+            "car_count": consist["car_count"],
+            "total_units": consist["total_units"],
+            "total_axles": consist["total_axles"],
+            "total_length_ft": consist["total_length_ft"],
+            "total_weight_tons": consist["total_weight_tons"],
+            "total_horsepower": consist["total_horsepower"],
+            "lead_locomotive": consist["units"][0]["name"] if consist["units"] else "Unknown",
+            "speed_mph": speed,
+        }
+        train_summaries.append(summary_entry)
+
+        if not longest_consist or consist["total_units"] > longest_consist["total_units"]:
+            longest_consist = summary_entry
+        if not heaviest_consist or consist["total_weight_tons"] > heaviest_consist["total_weight_tons"]:
+            heaviest_consist = summary_entry
+
+    return {
+        "timestamp": time.time(),
+        "total_trains": len(rail_features),
+        "total_locomotives": total_locomotives,
+        "total_cars": total_cars,
+        "total_units": total_locomotives + total_cars,
+        "total_axles": total_axles,
+        "total_horsepower": total_horsepower,
+        "total_weight_tons": total_tonnage,
+        "motive_power_distribution": motive_power_dist,
+        "car_type_distribution": car_type_dist,
+        "longest_consist": longest_consist,
+        "heaviest_consist": heaviest_consist,
+        "trains": train_summaries,
+    }
+
+
+@app.get("/api/consists/{train_num}")
+async def get_train_consist(train_num: str):
+    """Retrieve detailed rolling stock consist breakdown and car inventory for a specific train."""
+    trains_geo = fetch_live_train_geojson()
+    target = train_num.strip().lower()
+
+    matched_props = None
+    for feat in trains_geo.get("features", []):
+        props = feat.get("properties", {})
+        t_num = str(props.get("train_num") or "").lower()
+        t_id = str(props.get("id") or "").lower()
+        if target in (t_num, t_id) or t_id.endswith(f"_{target}"):
+            matched_props = props
+            break
+
+    if matched_props:
+        t_num = str(matched_props.get("train_num") or train_num)
+        route = matched_props.get("route") or matched_props.get("route_name") or ""
+        agency = matched_props.get("agency") or "Amtrak"
+        speed = float(matched_props.get("speed_mph") or 0.0)
+    else:
+        t_num = train_num
+        route = "Mainline Service"
+        agency = "Amtrak"
+        speed = 55.0
+
+    consist = synthesize_consist_for_train(t_num, route=route, agency=agency, speed_mph=speed)
+
+    # Attach any active encounter defect report if train is currently passing a camera
+    active_encounters = encounter_tracker.get_active_encounters()
+    attached_encounter = None
+    for enc in active_encounters:
+        if str(enc.get("train_num", "")).lower() == target:
+            attached_encounter = enc
+            break
+
+    return {
+        "consist": consist,
+        "active_encounter": attached_encounter,
+        "defect_report": attached_encounter.get("defect_report") if attached_encounter else None,
+        "timestamp": time.time(),
+    }
+
+
+@app.get("/api/defect-detectors/{cam_id}")
+async def get_defect_detector_report(cam_id: str):
+    """Returns trackside Automated Defect Detector (HBD/DED) radio report for a camera junction."""
+    cam = None
+    for c in PUBLIC_RAIL_CAMS:
+        if c.get("cam_id") == cam_id:
+            cam = c
+            break
+
+    if not cam:
+        raise HTTPException(status_code=404, detail=f"Webcam / junction '{cam_id}' not found.")
+
+    # Check for active encounter on this camera
+    active_encounters = encounter_tracker.get_active_encounters()
+    matched_enc = None
+    for enc in active_encounters:
+        if enc.get("camera_id") == cam_id:
+            matched_enc = enc
+            break
+
+    if matched_enc:
+        defect_rep = matched_enc.get("defect_report")
+        if not defect_rep:
+            defect_rep = generate_defect_report(cam, str(matched_enc.get("train_num", "100")), speed_mph=float(matched_enc.get("peak_speed_mph", 55.0)))
+        status = "train_present"
+        train_num = matched_enc.get("train_num")
+    else:
+        # Check recent completed history for this camera
+        recent_history = encounter_tracker.get_recent_history(limit=50)
+        recent_cam_enc = next((e for e in recent_history if e.get("camera_id") == cam_id), None)
+        if recent_cam_enc and recent_cam_enc.get("defect_report"):
+            defect_rep = recent_cam_enc["defect_report"]
+            status = "recent_inspection"
+            train_num = recent_cam_enc.get("train_num")
+        else:
+            defect_rep = generate_defect_report(cam, "100", speed_mph=54.0)
+            status = "nominal_standby"
+            train_num = None
+
+    return {
+        "cam_id": cam_id,
+        "camera_name": cam.get("name", cam_id),
+        "milepost": cam.get("milepost", "MP 100.0"),
+        "subdivision": cam.get("subdivision", "Mainline Sub"),
+        "status": status,
+        "train_num": train_num,
+        "detector_report": defect_rep,
+        "timestamp": time.time(),
+    }
 
 
 if __name__ == "__main__":

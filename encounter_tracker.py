@@ -11,6 +11,9 @@ from collections import deque
 from typing import Any, Dict, List, Optional
 
 
+from consist_detector import synthesize_consist_for_train, generate_defect_report
+
+
 class EncounterTracker:
     def __init__(self, max_history: int = 50, encounter_radius_miles: float = 5.0):
         self.max_history = max_history
@@ -44,11 +47,17 @@ class EncounterTracker:
             speed = float(train.get("speed_mph", 0.0))
 
             if key not in self.active_sessions:
+                # Synthesize consist profile & defect detector packet
+                route_str = train.get("route", "Unknown Route")
+                agency_str = train.get("agency", "")
+                consist = synthesize_consist_for_train(train_num, route=route_str, agency=agency_str, speed_mph=speed)
+                defect_rep = generate_defect_report(cam, train_num, speed_mph=speed, consist_data=consist)
+
                 # Initiate new encounter session
                 sess = {
                     "encounter_id": f"enc_{train_num}_{cam_id}_{int(now)}",
                     "train_num": train_num,
-                    "route": train.get("route", "Unknown Route"),
+                    "route": route_str,
                     "camera_id": cam_id,
                     "camera_name": cam.get("name", cam_id),
                     "location": cam.get("location", ""),
@@ -61,6 +70,8 @@ class EncounterTracker:
                     "closest_distance_miles": dist,
                     "peak_speed_mph": speed,
                     "trajectory_entry": ev.get("trajectory", "unknown"),
+                    "consist": consist,
+                    "defect_report": defect_rep,
                     "status": "in_progress",
                 }
                 self.active_sessions[key] = sess
