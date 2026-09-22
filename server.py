@@ -25,6 +25,7 @@ from cam_lookup import (
     calculate_trajectory_status,
     find_nearby_cameras,
     haversine_miles,
+    parse_heading_degrees,
 )
 from encounter_tracker import EncounterTracker
 from gtfs_rt_parser import parse_gtfs_rt_vehicle_positions, parse_mbta_v3_vehicles
@@ -103,7 +104,15 @@ def fetch_live_train_geojson() -> Dict[str, Any]:
                                 "train_num": t.get("trainNum"),
                                 "route": t.get("routeName"),
                                 "speed_mph": round(float(t.get("velocity", 0.0)), 1),
-                                "heading": t.get("heading"),
+                                # Amtraker returns a compass string ("NW", "SE"), not
+                                # degrees — normalize here so every consumer (map arrows,
+                                # cam-jump trajectory math) gets a clean float or None.
+                                # Confirmed live 2026-09-21: the raw string reaching the
+                                # frontend's `heading - 45` arrow-rotation math produced
+                                # rotate(NaNdeg) on every single Amtrak train (37% of
+                                # all trains on the map) — arrows never worked at all
+                                # for Amtrak despite the icon-offset fix being correct.
+                                "heading": parse_heading_degrees(t.get("heading")),
                                 "timely": t.get("trainTimely"),
                                 "status": t.get("statusMsg"),
                                 "origin": t.get("origName"),
